@@ -274,6 +274,10 @@
             padding: 0 !important;
             overflow-y: hidden !important;
         }
+        /* 포커스 모드: workflowList 높이 확정 → workflow-card height:100% 해결 */
+        body.focus-mode #workflowList {
+            height: 100%;
+        }
 
         /* 포커스 액션 패널 */
         .focus-action-panel {
@@ -5588,12 +5592,23 @@
                 if (!this.db) {
                     throw new Error('IndexedDB가 초기화되지 않았습니다');
                 }
-                
+
                 return new Promise((resolve, reject) => {
                     const transaction = this.db.transaction([storeName], 'readonly');
                     const store = transaction.objectStore(storeName);
-                    
+
                     const request = store.getAll();
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async getAllFileKeys(storeName) {
+                if (!this.db) throw new Error('IndexedDB가 초기화되지 않았습니다');
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([storeName], 'readonly');
+                    const store = transaction.objectStore(storeName);
+                    const request = store.getAllKeys();
                     request.onsuccess = () => resolve(request.result);
                     request.onerror = () => reject(request.error);
                 });
@@ -13661,12 +13676,12 @@ ${incompleteInfo}
                     const allDetails = { ...this.checklistDetails };
                     const formsData = await this._exportFormsData(allDetails);
                     const attachmentsData = await this._exportAttachmentsData(allDetails);
-                    // 자료실 전체 파일 포함
+                    // 자료실 전체 파일 포함 (ID만 먼저 조회하여 대용량 blob 일괄 로딩 방지)
                     let lawLibraryData = { files: [], groups: [] };
                     try {
-                        const allLibFiles = await this._getAllLibraryFiles();
-                        if (allLibFiles.length > 0) {
-                            lawLibraryData = await this._exportLawLibraryData(allLibFiles.map(f => f.id));
+                        const allLibIds = await this.dbManager.getAllFileKeys('lawLibrary');
+                        if (allLibIds.length > 0) {
+                            lawLibraryData = await this._exportLawLibraryData(allLibIds);
                         }
                     } catch (libErr) {
                         console.warn('자료실 백업 실패 (업무 백업은 계속):', libErr);
