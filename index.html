@@ -13517,19 +13517,26 @@ ${incompleteInfo}
                     const allFormsData = await this._exportFormsData(allChecklistDetails);
                     // 첨부자료 Base64 변환
                     const allAttachmentsData = await this._exportAttachmentsData(allChecklistDetails);
+                    // 자료실 연결 파일 수집 (linkedLibraryDocs에 있는 ID만 추출)
+                    const linkedLibIds = new Set();
+                    for (const detail of Object.values(allChecklistDetails)) {
+                        (detail.linkedLibraryDocs || []).forEach(id => linkedLibIds.add(id));
+                    }
+                    const allLawLibraryData = await this._exportLawLibraryData([...linkedLibIds]);
 
                     // 폴더 구조 포함
                     const usedFolders = [...new Set(workflows.map(w => w.folderPath).filter(Boolean))];
 
                     const packageData = {
-                        version: '6.3',
+                        version: '6.4',
                         exportDate: new Date().toISOString(),
                         type: 'workflow_package',
                         workflows,
                         checklistDetailsMap: allChecklistDetails,
                         folders: usedFolders,
                         formsData: allFormsData,
-                        attachmentsData: allAttachmentsData
+                        attachmentsData: allAttachmentsData,
+                        lawLibraryData: allLawLibraryData
                     };
 
                     const jsonStr = JSON.stringify(packageData, null, 2);
@@ -13543,7 +13550,8 @@ ${incompleteInfo}
 
                     const formCount = Object.values(allFormsData).flat().length;
                     const attachCount = Object.values(allAttachmentsData).flat().length;
-                    this.showToast('success', '✅', `업무 파일 생성 완료 (업무 ${workflows.length}개 · 서식 ${formCount}개 · 첨부자료 ${attachCount}개 포함)`);
+                    const libCount = allLawLibraryData.files.length;
+                    this.showToast('success', '✅', `업무 파일 생성 완료 (업무 ${workflows.length}개 · 서식 ${formCount}개 · 첨부자료 ${attachCount}개 · 자료실 ${libCount}개 포함)`);
                 } catch (err) {
                     console.error('공유 패키지 생성 오류:', err);
                     this.showToast('error', '❌', '업무 파일 생성 실패: ' + err.message);
@@ -13653,14 +13661,25 @@ ${incompleteInfo}
                     const allDetails = { ...this.checklistDetails };
                     const formsData = await this._exportFormsData(allDetails);
                     const attachmentsData = await this._exportAttachmentsData(allDetails);
+                    // 자료실 전체 파일 포함
+                    let lawLibraryData = { files: [], groups: [] };
+                    try {
+                        const allLibFiles = await this._getAllLibraryFiles();
+                        if (allLibFiles.length > 0) {
+                            lawLibraryData = await this._exportLawLibraryData(allLibFiles.map(f => f.id));
+                        }
+                    } catch (libErr) {
+                        console.warn('자료실 백업 실패 (업무 백업은 계속):', libErr);
+                    }
                     const backup = {
-                        version: '6.2',
+                        version: '6.3',
                         exportDate: new Date().toISOString(),
                         type: 'full_backup',
                         data: safeData,
                         checklistDetails: allDetails,
                         formsData,
                         attachmentsData,
+                        lawLibraryData,
                         folders: this.allData.folders || []
                     };
                     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -13700,7 +13719,7 @@ ${incompleteInfo}
                             const choice = confirm('전체 백업을 복원합니다.\n\n확인: 기존 데이터에 병합 추가\n취소: 취소');
                             if (!choice) return;
                             await this._processImportedPackage(imported.data
-                                ? { type: 'workflow_package', workflows: imported.data.workflows || [], formsData: imported.formsData || {}, attachmentsData: imported.attachmentsData || {}, checklistDetailsMap: imported.checklistDetails || {} }
+                                ? { type: 'workflow_package', workflows: imported.data.workflows || [], formsData: imported.formsData || {}, attachmentsData: imported.attachmentsData || {}, checklistDetailsMap: imported.checklistDetails || {}, lawLibraryData: imported.lawLibraryData || null }
                                 : imported);
                         } else {
                             await this._processImportedPackage(imported);
@@ -16777,9 +16796,11 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                     throw new Error('올바른 업무 파일이 아닙니다');
                 }
 
+                const lawLibraryData = imported.lawLibraryData || null;
                 let importCount = 0;
                 const baseTime = Date.now();
                 const importedWorkflowIds = [];
+                const allImportedChecklistDetails = {};
 
                 // ── 템플릿 파일 가져오기 → 바로 업무로 생성 ──
                 for (let i = 0; i < templatesToImport.length; i++) {
@@ -16846,6 +16867,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                         });
                     }
 
+                    Object.assign(allImportedChecklistDetails, checklistDetails);
                     importCount++;
                 }
 
@@ -16933,7 +16955,13 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                         this.allData.folders.push(newWorkflow.folderPath);
                     }
 
+                    Object.assign(allImportedChecklistDetails, checklistDetails);
                     importCount++;
+                }
+
+                // ── 자료실 파일 복원 (모든 업무 루프 완료 후 한 번만) ──
+                if (lawLibraryData && lawLibraryData.files && lawLibraryData.files.length > 0) {
+                    await this._importLawLibraryData(lawLibraryData, allImportedChecklistDetails);
                 }
 
                 if (importCount > 0) {
@@ -19749,6 +19777,102 @@ ${aiPartnerCitationFirstRules}
                 return restoredMap;
             }
 
+            // 자료실 파일을 Base64 패키지로 내보내기 (연결된 그룹 메타 포함)
+            async _exportLawLibraryData(fileIds) {
+                const result = { files: [], groups: [] };
+                if (!fileIds || fileIds.length === 0 || !this.dbReady) return result;
+
+                const allGroups = this._getLibraryGroups();
+                const neededGroupIds = new Set();
+
+                for (const id of fileIds) {
+                    try {
+                        const rec = await this.dbManager.getFile('lawLibrary', id);
+                        if (!rec || !rec.blob) continue;
+                        const base64 = await this._blobToBase64(rec.blob);
+                        // blob · 임베딩 벡터 제외 (JSON 크기 폭증 방지 — 임베딩은 복원 후 재생성)
+                        const { blob, chunkEmbeddings, embeddedAt, embeddedChunkCount,
+                                totalChunkCount, embeddingError, embeddingErrorAt, ...meta } = rec;
+                        result.files.push({ ...meta, originalId: rec.id, base64Data: base64 });
+                        if (rec.groupId != null) neededGroupIds.add(rec.groupId);
+                    } catch (e) { console.warn('자료실 파일 읽기 실패:', id, e); }
+                }
+
+                result.groups = allGroups
+                    .filter(g => neededGroupIds.has(g.id))
+                    .map(g => ({ originalId: g.id, name: g.name, order: g.order }));
+
+                return result;
+            }
+
+            // 자료실 패키지 복원: 그룹은 이름 기준 병합, 파일은 파일명 기준 중복 방지
+            async _importLawLibraryData(lawLibraryData, checklistDetails) {
+                if (!lawLibraryData || !this.dbReady) return;
+                const { files = [], groups = [] } = lawLibraryData;
+                if (files.length === 0) return;
+
+                // ── Step 1: 그룹 병합 (이름 기준 dedup) ──
+                const groupIdRemap = {};   // originalId → local id
+                const currentGroups = this._getLibraryGroups();
+                const groupsToAdd = [];
+
+                for (const g of groups) {
+                    const existing = currentGroups.find(cg => cg.name === g.name);
+                    if (existing) {
+                        groupIdRemap[g.originalId] = existing.id;
+                    } else {
+                        const newId = Date.now() + (groupsToAdd.length * 13 + Math.floor(Math.random() * 7));
+                        groupIdRemap[g.originalId] = newId;
+                        groupsToAdd.push({ id: newId, name: g.name, order: currentGroups.length + groupsToAdd.length });
+                    }
+                }
+                if (groupsToAdd.length > 0) {
+                    this._saveLibraryGroups([...currentGroups, ...groupsToAdd]);
+                }
+
+                // ── Step 2: 파일 복원 (파일명 기준 dedup, 임베딩 포함) ──
+                const libFileIdRemap = {};  // originalId → local id
+                const existingFiles = await this._getAllLibraryFiles();
+
+                for (const fileData of files) {
+                    if (!fileData.base64Data) continue;
+                    try {
+                        const existing = existingFiles.find(f => f.name === fileData.name);
+                        if (existing) {
+                            libFileIdRemap[fileData.originalId] = existing.id;
+                            continue;
+                        }
+                        const blob = await this._base64ToBlob(fileData.base64Data);
+                        const newGroupId = fileData.groupId != null
+                            ? (groupIdRemap[fileData.groupId] ?? null)
+                            : null;
+                        const { base64Data, originalId, id, ...rest } = fileData;
+                        const newId = await this.dbManager.saveFile('lawLibrary', {
+                            ...rest, blob, groupId: newGroupId
+                        });
+                        libFileIdRemap[fileData.originalId] = newId;
+                    } catch (e) { console.warn('자료실 복원 실패:', fileData.name, e); }
+                }
+
+                // ── Step 3: checklistDetails의 linkedLibraryDocs ID 재매핑 ──
+                for (const [key, detail] of Object.entries(checklistDetails)) {
+                    if (!detail.linkedLibraryDocs || detail.linkedLibraryDocs.length === 0) continue;
+                    detail.linkedLibraryDocs = detail.linkedLibraryDocs
+                        .map(oldId => libFileIdRemap[oldId] ?? null)
+                        .filter(id => id !== null);
+                    this.checklistDetails[key] = detail;
+                    await this.dbManager.saveChecklistDetails(key, detail).catch(() => {});
+                }
+
+                // 자료실 UI 갱신 (열려 있을 경우)
+                await this._renderLawLibraryList().catch(() => {});
+
+                const restoredCount = Object.keys(libFileIdRemap).length;
+                if (restoredCount > 0) {
+                    this.showToast('info', '📚', `자료실 파일 ${restoredCount}개 복원 완료 · AI 검색 사용 시 자료실에서 임베딩을 다시 실행하세요`);
+                }
+            }
+
             downloadData() {
                 // 다운로드 전 즉시 저장 (최신 데이터 보장)
                 this.saveDataImmediate();
@@ -20420,6 +20544,13 @@ ${aiPartnerCitationFirstRules}
                                 };
                             }
 
+                            // 자료실 연결 정보 복원 (linkedLibraryDocs — ID는 이후 재매핑)
+                            const oldProjectKey = `project-${oldId}`;
+                            if (packageData.checklistDetailsMap && packageData.checklistDetailsMap[oldProjectKey]) {
+                                this.checklistDetails[projectKey].linkedLibraryDocs =
+                                    packageData.checklistDetailsMap[oldProjectKey].linkedLibraryDocs || [];
+                            }
+
                             // 첨부파일 복원
                             if (packageData.files) {
                                 for (const key in packageData.files) {
@@ -20605,6 +20736,18 @@ ${aiPartnerCitationFirstRules}
                         }
                     }
 
+                    // 자료실 파일 복원 및 linkedLibraryDocs ID 재매핑
+                    if (packageData.lawLibraryData && packageData.lawLibraryData.files && packageData.lawLibraryData.files.length > 0) {
+                        const importedProjectDetails = {};
+                        for (const project of packageData.projects) {
+                            const key = `project-${project.id}`;
+                            if (this.checklistDetails[key] && this.checklistDetails[key].linkedLibraryDocs) {
+                                importedProjectDetails[key] = this.checklistDetails[key];
+                            }
+                        }
+                        await this._importLawLibraryData(packageData.lawLibraryData, importedProjectDetails);
+                    }
+
                     // 체크리스트 세부 정보 저장
                     for (const key in this.checklistDetails) {
                         await this.dbManager.saveChecklistDetails(key, this.checklistDetails[key]);
@@ -20640,7 +20783,9 @@ ${aiPartnerCitationFirstRules}
                         }, 100);
                     }
 
-                    this.showToast('success', '✅', `업무 ${importedCount}개, 파일 ${fileCount}개 가져오기 완료`);
+                    const libCount = packageData.lawLibraryData?.files?.length || 0;
+                    const libMsg = libCount > 0 ? ` · 자료실 ${libCount}개` : '';
+                    this.showToast('success', '✅', `업무 ${importedCount}개, 파일 ${fileCount}개${libMsg} 가져오기 완료`);
                 } catch (error) {
                     console.error('패키지 가져오기 오류:', error);
                     this.showToast('error', '❌', '패키지 가져오기 실패: ' + error.message);
@@ -24998,13 +25143,15 @@ ${originalContent}`;
             
             async exportYearlyBackup(year, workflows) {
                 const packageData = {
-                    version: '6.2',
+                    version: '6.3',
                     exportDate: new Date().toISOString(),
                     type: 'yearly-backup',
                     year: year,
                     projects: [],
                     files: {},
-                    pdfDocuments: {}
+                    pdfDocuments: {},
+                    checklistDetailsMap: {},
+                    lawLibraryData: null
                 };
                 
                 // 선택된 업무 수집
@@ -25015,10 +25162,17 @@ ${originalContent}`;
                         continue;
                     }
                     packageData.projects.push(project);
-                    
+
                     // 업무 관련 파일 수집
                     const projectKey = `project-${project.id}`;
                     const details = this.checklistDetails[projectKey];
+
+                    // 자료실 연결 정보 수집
+                    if (details && details.linkedLibraryDocs && details.linkedLibraryDocs.length > 0) {
+                        packageData.checklistDetailsMap[projectKey] = {
+                            linkedLibraryDocs: [...details.linkedLibraryDocs]
+                        };
+                    }
                     
                     if (details) {
                         // 첨부파일 수집
@@ -25179,6 +25333,15 @@ ${originalContent}`;
                     }
                 }
                 
+                // 자료실 연결 파일 수집 (linkedLibraryDocs에 있는 ID만)
+                const linkedLibIds = new Set();
+                for (const detail of Object.values(packageData.checklistDetailsMap)) {
+                    (detail.linkedLibraryDocs || []).forEach(id => linkedLibIds.add(id));
+                }
+                if (linkedLibIds.size > 0) {
+                    packageData.lawLibraryData = await this._exportLawLibraryData([...linkedLibIds]);
+                }
+
                 // 최종 검증: projects 배열 확인
                 if (!packageData.projects || packageData.projects.length === 0) {
                     console.error('년도별 백업 실패: projects 배열이 비어있습니다.', year);
