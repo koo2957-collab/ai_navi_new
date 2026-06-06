@@ -2679,9 +2679,6 @@
         .lib-file-btn.del:hover { background:rgba(220,38,38,0.08); color:#dc2626; }
         .lib-file-btn.emb { color:#d97706; }
         .lib-file-btn.emb:hover { background:rgba(217,119,6,0.08); color:#b45309; }
-        .attach-file-row[draggable="true"] { cursor:grab; }
-        .attach-file-row[draggable="true"]:active { cursor:grabbing; }
-        .attach-file-row.lib-file-dragging { opacity:0.3; }
         .attach-sec-hd.lib-drop-over { background:rgba(37,99,235,0.08) !important; outline:2px dashed var(--accent); outline-offset:-2px; border-radius:0; }
         .lib-move-popup { position:fixed; z-index:10300; background:var(--white); border:1px solid var(--border-light); border-radius:7px; box-shadow:0 6px 20px rgba(0,0,0,0.13); min-width:170px; padding:4px 0; }
         .lib-modal-drag-active { box-shadow:inset 0 0 0 2.5px var(--accent), 0 20px 60px rgba(17,31,53,0.25) !important; background:rgba(37,99,235,0.025) !important; transition:box-shadow 0.15s, background 0.15s; }
@@ -18831,20 +18828,6 @@ ${aiPartnerCitationFirstRules}
                 this._applyLibraryAccordionStates(prevStates);
             }
 
-            _libFileDragStart(e, fileId) {
-                if (e.target.closest('button')) { e.preventDefault(); return; }
-                e.dataTransfer.setData('text/plain', String(fileId));
-                e.dataTransfer.effectAllowed = 'move';
-                this._libDragFileId = fileId;
-                setTimeout(() => e.target.closest('.attach-file-row')?.classList.add('lib-file-dragging'), 0);
-            }
-
-            _libFileDragEnd(e) {
-                e.target.closest('.attach-file-row')?.classList.remove('lib-file-dragging');
-                document.querySelectorAll('.attach-sec-hd.lib-drop-over').forEach(el => el.classList.remove('lib-drop-over'));
-                this._libDragFileId = null;
-            }
-
             _libGroupDragOver(e, el) {
                 if (!this._libDragFileId) return;
                 e.dataTransfer.dropEffect = 'move';
@@ -18989,9 +18972,7 @@ ${aiPartnerCitationFirstRules}
                 };
 
                 const renderFileRow = (f, isFirst, isLast) => `
-                    <div class="attach-file-row" draggable="true"
-                         ondragstart="app._libFileDragStart(event,${f.id})"
-                         ondragend="app._libFileDragEnd(event)">
+                    <div class="attach-file-row">
                         <div style="display:flex;flex-direction:column;gap:1px;flex-shrink:0;margin-right:2px;">
                             <button class="lib-file-btn" style="width:18px;height:18px;${isFirst ? 'opacity:0.2;pointer-events:none;' : ''}" title="위로" onclick="app.shiftLibraryFileOrder(${f.id},'up')">${icoUp}</button>
                             <button class="lib-file-btn" style="width:18px;height:18px;${isLast  ? 'opacity:0.2;pointer-events:none;' : ''}" title="아래로" onclick="app.shiftLibraryFileOrder(${f.id},'down')">${icoDn}</button>
@@ -19452,6 +19433,7 @@ ${aiPartnerCitationFirstRules}
                 const attachPanel = document.getElementById(`focus-sub-attach-${wfId}`);
                 if (attachPanel && wf) attachPanel.innerHTML = this.renderProjectAttachments(wf);
                 await this._loadLinkedLibraryMeta(wfId);
+                this._refreshFocusAttachBadge(wfId);
                 this.showToast('success', '✅', `자료실 파일 ${checked.length}개 연결 완료`);
             }
 
@@ -19470,6 +19452,7 @@ ${aiPartnerCitationFirstRules}
                 const attachPanelU = document.getElementById(`focus-sub-attach-${workflowId}`);
                 if (attachPanelU && wfU) attachPanelU.innerHTML = this.renderProjectAttachments(wfU);
                 await this._loadLinkedLibraryMeta(workflowId);
+                this._refreshFocusAttachBadge(workflowId);
                 this.showToast('success', '✅', '자료실 연결 해제');
             }
 
@@ -23618,13 +23601,8 @@ ${originalContent}`;
                     this.displayWorkflows();
                 }
 
-                // 버튼 배지 갱신
-                const _atts = this.checklistDetails[projectKey]?.attachments || [];
-                const _attachBtn = document.getElementById(`focus-btn-attach-${workflowId}`);
-                if (_attachBtn) {
-                    const _badge = _atts.length > 0 ? `&nbsp;<span style="background:rgba(37,99,235,0.1);color:var(--accent);font-size:0.65rem;padding:1px 5px;border-radius:4px;font-weight:700;">${_atts.length}</span>` : '';
-                    _attachBtn.innerHTML = `첨부자료${_badge}`;
-                }
+                // 버튼 배지 갱신 (첨부파일 + 자료실 연결 수 반영)
+                this._refreshFocusAttachBadge(workflowId);
 
                 // 수정 모달이 열려있으면 첨부 자료 섹션 업데이트
                 const widForRefresh = this.parseWorkflowIdFromAttachmentContext(projectKey);
@@ -23637,6 +23615,18 @@ ${originalContent}`;
                 const s = String(workflowIdOrProjectKey);
                 if (s.startsWith('project-')) return s.slice('project-'.length);
                 return workflowIdOrProjectKey;
+            }
+
+            // 포커스 모드 첨부자료 버튼 배지 갱신 (첨부파일 수 + 자료실 연결 수)
+            _refreshFocusAttachBadge(workflowId) {
+                const btn = document.getElementById(`focus-btn-attach-${workflowId}`);
+                if (!btn) return;
+                const detail = this.checklistDetails[`project-${workflowId}`];
+                const atts   = detail?.attachments      || [];
+                const linked = detail?.linkedLibraryDocs || [];
+                const aBadge = atts.length   > 0 ? `&nbsp;<span style="background:rgba(37,99,235,0.1);color:var(--accent);font-size:0.65rem;padding:1px 5px;border-radius:4px;font-weight:700;">${atts.length}</span>`   : '';
+                const lBadge = linked.length > 0 ? `&nbsp;<span style="background:rgba(5,150,105,0.1);color:#059669;font-size:0.65rem;padding:1px 5px;border-radius:4px;font-weight:700;">${linked.length}</span>` : '';
+                btn.innerHTML = `첨부자료${aBadge}${lBadge}`;
             }
 
             // 편집 중인 업무와 동일한지 (숫자/문자 id 혼용 대응)
@@ -24081,13 +24071,8 @@ ${originalContent}`;
                     } else {
                         this.displayWorkflows();
                     }
-                    // 버튼 배지 갱신
-                    const _atts2 = this.checklistDetails[detailKey]?.attachments || [];
-                    const _btn2 = document.getElementById(`focus-btn-attach-${wid}`);
-                    if (_btn2) {
-                        const _badge2 = _atts2.length > 0 ? `&nbsp;<span style="background:rgba(37,99,235,0.1);color:var(--accent);font-size:0.65rem;padding:1px 5px;border-radius:4px;font-weight:700;">${_atts2.length}</span>` : '';
-                        _btn2.innerHTML = `첨부자료${_badge2}`;
-                    }
+                    // 버튼 배지 갱신 (첨부파일 + 자료실 연결 수 반영)
+                    this._refreshFocusAttachBadge(wid);
                 } else {
                     this.displayWorkflows();
                 }
