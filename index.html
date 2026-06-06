@@ -26540,7 +26540,8 @@ ${originalContent}`;
                             details: originalDetails.details || '',
                             memo: originalDetails.memo || '',
                             law: originalDetails.law || '',
-                            result: '' // 조치결과만 초기화
+                            result: '', // 조치결과만 초기화
+                            linkedLibraryDocs: [...(originalDetails.linkedLibraryDocs || [])]
                         };
 
                         // 첨부파일 복사 (IndexedDB에서)
