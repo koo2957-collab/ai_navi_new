@@ -18978,8 +18978,13 @@ ${aiPartnerCitationFirstRules}
                 };
 
                 const embBadge = (f) => {
+                    if (f.embeddedAt && f.embeddingError) {
+                        // 부분 성공 — 일부 청크 오류
+                        const tip = `임베딩 부분 성공 · ${f.embeddedChunkCount||'?'}/${f.totalChunkCount||'?'}청크 · 오류: ${f.embeddingError}`;
+                        return `<span style="background:#fff7ed;color:#c2410c;border-radius:3px;padding:1px 5px;font-size:0.67rem;font-weight:600;" title="${this.escapeHtml(tip)}">⚠️ ${f.embeddedChunkCount||'?'}청크</span>`;
+                    }
                     if (f.embeddedAt) return `<span style="background:#d1fae5;color:#065f46;border-radius:3px;padding:1px 5px;font-size:0.67rem;font-weight:600;" title="임베딩 완료 · ${f.embeddedChunkCount||'?'}청크">🔗 ${f.embeddedChunkCount||'?'}청크</span>`;
-                    if (f.embeddingError) return `<span style="background:#fef2f2;color:#dc2626;border-radius:3px;padding:1px 5px;font-size:0.67rem;font-weight:600;">❌ 실패</span>`;
+                    if (f.embeddingError) return `<span style="background:#fef2f2;color:#dc2626;border-radius:3px;padding:1px 5px;font-size:0.67rem;font-weight:600;" title="${this.escapeHtml(f.embeddingError)}">❌ 실패</span>`;
                     return `<span style="background:#f1f5f9;color:#94a3b8;border-radius:3px;padding:1px 5px;font-size:0.67rem;">키워드</span>`;
                 };
 
@@ -19469,19 +19474,40 @@ ${aiPartnerCitationFirstRules}
             }
 
             // ── 법제처 API 키 관리 ──────────────────────────────────────────
-            saveLawApiKey() {
+            async saveLawApiKey() {
                 const input = document.getElementById('lawApiKeyInput');
                 if (!input) return;
                 const key = input.value.trim();
                 if (!key) { this.showToast('error', '⚠️', 'OC 인증키를 입력하세요'); return; }
-                this.allData.lawApiKey = key;
-                this.saveDataImmediate();
-                input.type = 'text';
-                input.readOnly = true;
-                input.value = '✅ 법제처 OC 인증키가 설정되어 있습니다. [키 변경] 버튼으로 수정할 수 있습니다.';
+
                 const status = document.getElementById('lawApiKeyStatus');
-                if (status) { status.textContent = '연결됨'; status.style.color = '#28a745'; }
-                this.showToast('success', '✅', '법제처 OC 인증키가 저장되었습니다');
+                const saveBtn = document.querySelector('[onclick="app.saveLawApiKey()"]');
+
+                if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '테스트 중...'; }
+                if (status) { status.textContent = '법제처 연결 테스트 중...'; status.style.color = 'var(--text-muted)'; }
+
+                try {
+                    const testUrl = `https://www.law.go.kr/DRF/lawSearch.do?OC=${encodeURIComponent(key)}&target=law&type=JSON&query=${encodeURIComponent('민법')}&display=1`;
+                    const res = await fetch(testUrl, { mode: 'cors', signal: AbortSignal.timeout(8000) });
+                    if (!res.ok) throw new Error(`서버 오류 (HTTP ${res.status})`);
+                    const data = await res.json();
+                    if (!data?.LawSearch) throw new Error('응답 형식이 올바르지 않습니다');
+                    if (data.LawSearch.errYn === 'Y') throw new Error(data.LawSearch.errMsg || '인증 오류');
+
+                    // 연결 성공 — 저장
+                    this.allData.lawApiKey = key;
+                    this.saveDataImmediate();
+                    input.type = 'text';
+                    input.readOnly = true;
+                    input.value = '✅ 법제처 OC 인증키가 설정되어 있습니다. [키 변경] 버튼으로 수정할 수 있습니다.';
+                    if (status) { status.textContent = '연결됨'; status.style.color = '#28a745'; }
+                    this.showToast('success', '✅', '법제처 연결 확인 완료 — OC 인증키가 저장되었습니다');
+                } catch(e) {
+                    if (status) { status.textContent = '연결 실패 — 인증키를 확인하세요'; status.style.color = '#ef4444'; }
+                    this.showToast('error', '❌', `연결 테스트 실패: ${e.message}`);
+                } finally {
+                    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '저장'; }
+                }
             }
 
             resetLawApiKey() {
