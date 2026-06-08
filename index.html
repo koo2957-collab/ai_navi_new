@@ -194,6 +194,20 @@
             border: 1.5px solid rgba(37,99,235,0.2); border-top-color: var(--accent);
             border-radius: 50%; animation: btn-spin 0.65s linear infinite;
         }
+        /* 앱 시작 로딩 화면: 데이터 로드가 끝날 때까지 빈 화면처럼 보여 강제 종료하는 것을 방지 */
+        .app-loading-overlay {
+            position: fixed; inset: 0; z-index: 20000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+            background: var(--bg-light, #f4f6fa);
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .app-loading-overlay.hide { opacity: 0; visibility: hidden; pointer-events: none; }
+        .app-loading-spinner {
+            width: 34px; height: 34px; flex-shrink: 0;
+            border: 3px solid rgba(37,99,235,0.15); border-top-color: var(--accent);
+            border-radius: 50%; animation: btn-spin 0.8s linear infinite;
+        }
+        .app-loading-text { font-size: 0.88rem; color: var(--text-muted); letter-spacing: -0.01em; }
         .sidebar, .main-content, .ai-panel { background: var(--white); border-radius: 12px; padding: 28px; box-shadow: var(--shadow-sm); border: 1px solid var(--border-subtle); }
         .sidebar { position: relative; top: auto; height: 100%; max-height: none; overflow-y: auto; transition: all 0.3s ease; box-sizing: border-box; }
         .main-content { overflow-x: hidden; height: 100%; overflow-y: auto; box-sizing: border-box; }
@@ -4122,6 +4136,11 @@
     </style>
 </head>
 <body>
+    <!-- 앱 데이터 로딩 화면: 자료가 많아 초기화가 오래 걸릴 때 빈 화면으로 보이지 않도록 표시 -->
+    <div id="appLoadingOverlay" class="app-loading-overlay">
+        <div class="app-loading-spinner"></div>
+        <div class="app-loading-text">불러오는 중입니다...</div>
+    </div>
     <div class="header">
         <div class="header-content">
 
@@ -6293,6 +6312,17 @@
                 setTimeout(() => {
                     this.updateAiPanelPosition();
                 }, 200);
+
+                // 데이터 로드 및 화면 그리기가 끝났으므로 시작 로딩 화면을 닫음
+                this.hideAppLoadingOverlay();
+            }
+
+            // 시작 로딩 화면 닫기 (서서히 사라진 뒤 DOM에서 제거)
+            hideAppLoadingOverlay() {
+                const overlay = document.getElementById('appLoadingOverlay');
+                if (!overlay) return;
+                overlay.classList.add('hide');
+                setTimeout(() => overlay.remove(), 350);
             }
             
             // 키보드 단축키 초기화
@@ -30798,9 +30828,12 @@ ${formatList}`;
             } catch (error) {
                 console.error('앱 초기화 오류:', error);
                 // 오류 발생 시에도 기본 객체 생성 시도
-                window.app = { 
+                window.app = {
                     showToast: (type, icon, msg) => console.log(`${icon} ${msg}`)
                 };
+                // 초기화 실패 시 로딩 화면이 계속 떠 있지 않도록 즉시 제거
+                const overlay = document.getElementById('appLoadingOverlay');
+                if (overlay) overlay.remove();
             }
         }
         
