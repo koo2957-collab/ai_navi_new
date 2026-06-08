@@ -2680,7 +2680,7 @@
         .lib-file-btn.emb { color:#d97706; }
         .lib-file-btn.emb:hover { background:rgba(217,119,6,0.08); color:#b45309; }
         .attach-sec-hd.lib-drop-over { background:rgba(37,99,235,0.08) !important; outline:2px dashed var(--accent); outline-offset:-2px; border-radius:0; }
-        .lib-move-popup { position:fixed; z-index:10300; background:var(--white); border:1px solid var(--border-light); border-radius:7px; box-shadow:0 6px 20px rgba(0,0,0,0.13); min-width:170px; padding:4px 0; }
+        .lib-move-popup { position:fixed; z-index:10300; background:var(--white); border:1px solid var(--border-light); border-radius:7px; box-shadow:0 6px 20px rgba(0,0,0,0.13); min-width:170px; max-height:min(360px, calc(100vh - 24px)); overflow-y:auto; padding:4px 0; }
         .lib-modal-drag-active { box-shadow:inset 0 0 0 2.5px var(--accent), 0 20px 60px rgba(17,31,53,0.25) !important; background:rgba(37,99,235,0.025) !important; transition:box-shadow 0.15s, background 0.15s; }
         .lib-move-item { padding:7px 13px; font-size:0.8rem; cursor:pointer; color:var(--text-dark); white-space:nowrap; display:flex; align-items:center; gap:7px; }
         .lib-move-item:hover { background:var(--bg-light); }
@@ -5450,6 +5450,9 @@
             </div>
             <div style="padding:10px 16px 4px;background:var(--bg-subtle);border-bottom:1px solid var(--border-subtle);">
                 <div style="font-size:0.78rem;color:var(--text-muted);">이 업무에 참조할 파일을 선택하세요 (복수 선택 가능)</div>
+            </div>
+            <div style="padding:10px 16px 0;">
+                <input type="text" id="lawLibraryPickerSearchInput" placeholder="파일 이름으로 검색..." style="width:100%;" oninput="app.renderLawLibraryPickerList()">
             </div>
             <div id="lawLibraryPickerList" style="padding:12px 16px;max-height:52vh;overflow-y:auto;">
                 <div style="text-align:center;color:var(--text-muted);padding:24px;font-size:0.85rem;">법령·매뉴얼이 비어 있습니다</div>
@@ -19573,59 +19576,77 @@ ${aiPartnerCitationFirstRules}
             async openLibraryPicker(workflowId) {
                 this._pickerWorkflowId = workflowId;
                 const projectKey = `project-${workflowId}`;
-                const linked = this.checklistDetails[projectKey]?.linkedLibraryDocs || [];
-                const files  = await this._getAllLibraryFiles();
-                const groups = this._getLibraryGroups();
+                this._libraryPickerLinked = this.checklistDetails[projectKey]?.linkedLibraryDocs || [];
+                this._libraryPickerFiles  = await this._getAllLibraryFiles();
+                this._libraryPickerGroups = this._getLibraryGroups();
+                const searchInput = document.getElementById('lawLibraryPickerSearchInput');
+                if (searchInput) searchInput.value = '';
+                this.renderLawLibraryPickerList();
+                this.openModal('lawLibraryPickerModal');
+            }
+
+            // 자료실 파일 선택 피커 목록 렌더링 (검색어로 필터링)
+            renderLawLibraryPickerList() {
                 const container = document.getElementById('lawLibraryPickerList');
                 if (!container) return;
+                const linked = this._libraryPickerLinked || [];
+                const groups = this._libraryPickerGroups || [];
+                const allFiles = this._libraryPickerFiles || [];
+
+                if (allFiles.length === 0) {
+                    container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;font-size:0.85rem;">법령·매뉴얼이 비어 있습니다.<br>먼저 법령·매뉴얼에 파일을 등록하세요.</div>';
+                    return;
+                }
+
+                const query = (document.getElementById('lawLibraryPickerSearchInput')?.value || '').trim().toLowerCase();
+                const files = query ? allFiles.filter(f => f.name.toLowerCase().includes(query)) : allFiles;
 
                 if (files.length === 0) {
-                    container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;font-size:0.85rem;">법령·매뉴얼이 비어 있습니다.<br>먼저 법령·매뉴얼에 파일을 등록하세요.</div>';
-                } else {
-                    const icoChev   = `<svg class="attach-sec-chevron open" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
-                    const icoFile   = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.7;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
-                    const icoFolder = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.8;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
-
-                    const renderFileItem = (f) => {
-                        const isLinked = linked.includes(f.id);
-                        return `<label style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:3px;${isLinked ? 'background:rgba(37,99,235,0.06);' : ''}">
-                            <input type="checkbox" value="${f.id}" ${isLinked ? 'checked' : ''} style="width:15px;height:15px;flex-shrink:0;accent-color:var(--accent);">
-                            ${icoFile}
-                            <div style="flex:1;min-width:0;">
-                                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(f.name)}</div>
-                                <div style="font-size:0.7rem;color:var(--text-muted);">${this._formatFileSize(f.size)} · ${new Date(f.uploadedAt).toLocaleDateString('ko-KR')}</div>
-                            </div>
-                        </label>`;
-                    };
-
-                    const renderPickerGroup = (group, groupFiles, isUngrouped = false) => {
-                        if (groupFiles.length === 0) return '';
-                        const bdId = isUngrouped ? 'picker-group-bd-ungrouped' : `picker-group-bd-${group.id}`;
-                        const chevCls = isUngrouped ? 'attach-sec-chevron open' : 'attach-sec-chevron';
-                        return `<div class="lib-group-card" style="margin-bottom:6px;">
-                            <div class="attach-sec-hd" onclick="app.toggleAttachSection('${bdId}')" style="padding:6px 10px;">
-                                <div class="attach-sec-hd-l">
-                                    <svg class="${chevCls}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                                    ${isUngrouped ? icoFile : icoFolder}
-                                    <span class="attach-sec-title">${isUngrouped ? '미분류' : this.escapeHtml(group.name)}</span>
-                                    <span class="attach-sec-count">(${groupFiles.length}개)</span>
-                                </div>
-                            </div>
-                            <div class="attach-sec-bd${isUngrouped ? ' open' : ''}" id="${bdId}" style="padding:4px 10px 8px;">
-                                ${groupFiles.map(renderFileItem).join('')}
-                            </div>
-                        </div>`;
-                    };
-
-                    let html = '';
-                    for (const g of [...groups].sort((a,b) => a.order - b.order)) {
-                        html += renderPickerGroup(g, files.filter(f => f.groupId === g.id));
-                    }
-                    const ungrouped = files.filter(f => !f.groupId || !groups.find(g => g.id === f.groupId));
-                    html += renderPickerGroup(null, ungrouped, true);
-                    container.innerHTML = html || '<div style="text-align:center;color:var(--text-muted);padding:20px;">표시할 파일이 없습니다</div>';
+                    container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;font-size:0.85rem;">검색 결과가 없습니다</div>';
+                    return;
                 }
-                this.openModal('lawLibraryPickerModal');
+
+                const icoFile   = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.7;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+                const icoFolder = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.8;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+
+                const renderFileItem = (f) => {
+                    const isLinked = linked.includes(f.id);
+                    return `<label style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:3px;${isLinked ? 'background:rgba(37,99,235,0.06);' : ''}">
+                        <input type="checkbox" value="${f.id}" ${isLinked ? 'checked' : ''} style="width:15px;height:15px;flex-shrink:0;accent-color:var(--accent);">
+                        ${icoFile}
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-size:0.82rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(f.name)}</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted);">${this._formatFileSize(f.size)} · ${new Date(f.uploadedAt).toLocaleDateString('ko-KR')}</div>
+                        </div>
+                    </label>`;
+                };
+
+                const renderPickerGroup = (group, groupFiles, isUngrouped = false) => {
+                    if (groupFiles.length === 0) return '';
+                    const bdId = isUngrouped ? 'picker-group-bd-ungrouped' : `picker-group-bd-${group.id}`;
+                    const chevCls = isUngrouped ? 'attach-sec-chevron open' : 'attach-sec-chevron';
+                    return `<div class="lib-group-card" style="margin-bottom:6px;">
+                        <div class="attach-sec-hd" onclick="app.toggleAttachSection('${bdId}')" style="padding:6px 10px;">
+                            <div class="attach-sec-hd-l">
+                                <svg class="${chevCls}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                ${isUngrouped ? icoFile : icoFolder}
+                                <span class="attach-sec-title">${isUngrouped ? '미분류' : this.escapeHtml(group.name)}</span>
+                                <span class="attach-sec-count">(${groupFiles.length}개)</span>
+                            </div>
+                        </div>
+                        <div class="attach-sec-bd${isUngrouped ? ' open' : ''}" id="${bdId}" style="padding:4px 10px 8px;">
+                            ${groupFiles.map(renderFileItem).join('')}
+                        </div>
+                    </div>`;
+                };
+
+                let html = '';
+                for (const g of [...groups].sort((a,b) => a.order - b.order)) {
+                    html += renderPickerGroup(g, files.filter(f => f.groupId === g.id));
+                }
+                const ungrouped = files.filter(f => !f.groupId || !groups.find(g => g.id === f.groupId));
+                html += renderPickerGroup(null, ungrouped, true);
+                container.innerHTML = html || '<div style="text-align:center;color:var(--text-muted);padding:20px;">표시할 파일이 없습니다</div>';
             }
 
             // 자료실 파일 선택 확정
@@ -20007,8 +20028,7 @@ ${aiPartnerCitationFirstRules}
                 const popup = document.createElement('div');
                 popup.id = 'doc-repo-move-popup';
                 popup.className = 'lib-move-popup';
-                popup.style.top = (rect.bottom + 4) + 'px';
-                popup.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+                popup.style.visibility = 'hidden';
                 const icoFolder = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
                 const icoUng  = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
                 const items = [{ id: null, label: '미분류', ico: icoUng, indent: 0 }];
@@ -20022,6 +20042,19 @@ ${aiPartnerCitationFirstRules}
                     items.map(it => `<div class="lib-move-item" style="${it.indent ? 'padding-left:28px;' : ''}" onclick="app.moveRepoDocument(${docId},${it.id == null ? 'null' : it.id});app.hideRepoDocMovePopups()">${it.ico} ${this.escapeHtml(it.label)}</div>`).join('')
                 }`;
                 document.body.appendChild(popup);
+
+                // 화면 밖으로 벗어나지 않도록 위치 보정 (아래 공간이 부족하면 버튼 위쪽에 표시)
+                const margin = 8;
+                const popupH = popup.offsetHeight;
+                const popupW = popup.offsetWidth;
+                let top = rect.bottom + 4;
+                if (top + popupH > window.innerHeight - margin) {
+                    top = Math.max(margin, rect.top - popupH - 4);
+                }
+                popup.style.top = top + 'px';
+                popup.style.left = Math.max(margin, Math.min(rect.left, window.innerWidth - popupW - margin)) + 'px';
+                popup.style.visibility = '';
+
                 setTimeout(() => document.addEventListener('click', this._docRepoPopupClose = () => this.hideRepoDocMovePopups(), { once: true }), 0);
             }
             hideRepoDocMovePopups() {
