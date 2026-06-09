@@ -19779,7 +19779,9 @@ ${aiPartnerCitationFirstRules}
                     if (!rawChunks.length) return false;
 
                     if (onStep) onStep(3);
-                    const BATCH = 20;
+                    // 배치 5개 × 1,200자 ≈ 최대 9,000 토큰/배치
+                    // 배치 간 10초 딜레이 → 1분에 약 4배치 ≈ 36,000 토큰 (35K TPM 안전 마진 확보)
+                    const BATCH = 5;
                     const embeddedChunks = [];
                     let batchErrors = [];
                     for (let i = 0; i < rawChunks.length; i += BATCH) {
@@ -19790,8 +19792,8 @@ ${aiPartnerCitationFirstRules}
                         } catch(e) {
                             // 백그라운드 모드에서 429는 상위로 전파하여 큐가 재시도하도록 함
                             if (opts.background && e.isRateLimit) throw e;
-                            // 1회 재시도 (2초 대기)
-                            await new Promise(r => setTimeout(r, 2000));
+                            // 1회 재시도 (5초 대기)
+                            await new Promise(r => setTimeout(r, 5000));
                             try {
                                 const vecs2 = await generateBatchEmbeddings(batch.map(c => c.text), apiKey);
                                 batch.forEach((chunk, j) => embeddedChunks.push({ ...chunk, embedding: vecs2[j] }));
@@ -19801,9 +19803,9 @@ ${aiPartnerCitationFirstRules}
                                 batch.forEach(chunk => embeddedChunks.push(chunk));
                             }
                         }
-                        // 배치 간 딜레이 (rate limit 방지)
+                        // 배치 간 딜레이: 35K TPM 한도 준수
                         if (i + BATCH < rawChunks.length) {
-                            await new Promise(r => setTimeout(r, 1000));
+                            await new Promise(r => setTimeout(r, 10000));
                         }
                     }
 
