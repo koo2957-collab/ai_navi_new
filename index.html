@@ -7973,7 +7973,7 @@
                             ${deadlineHtml}
                             <div style="border-top:1px solid var(--border-subtle);margin:14px 0 10px;"></div>
                             <button class="fap-btn" onclick="app.enterFocusEditMode()">체크리스트 편집</button>
-                            <button class="fap-btn" onclick="app.exportMultipleWorkflowPackages([${workflow.id}])">내보내기</button>
+                            <button class="fap-btn" onclick="app.showExportStateChoiceModal([${workflow.id}])">내보내기</button>
                             <button class="fap-btn" onclick="app.generateOfficialDocument(${workflow.id})">AI 기안</button>
                             <button class="fap-btn" onclick="app.openPDFModal(${workflow.id})">출력</button>
                             <div class="fap-spacer"></div>
@@ -13688,6 +13688,49 @@ ${incompleteInfo}
                 document.querySelectorAll('.share-wf-chk, .share-folder-chk').forEach(chk => { chk.checked = checked; });
             }
 
+            // 내보내기 상태 선택 모달 — 진행상태 포함 여부를 사용자가 선택
+            showExportStateChoiceModal(workflowIds) {
+                const existing = document.querySelector('.export-state-choice-modal');
+                if (existing) existing.remove();
+
+                const count = workflowIds.length;
+                const label = count === 1 ? '업무 1건' : `업무 ${count}건`;
+                const modal = document.createElement('div');
+                modal.className = 'modal show export-state-choice-modal';
+                modal.innerHTML = `
+                    <div class="modal-content" style="max-width:440px;">
+                        <div class="modal-header">
+                            <div class="modal-title">내보내기 방식 선택</div>
+                            <button class="close-btn" onclick="this.closest('.modal').remove();app.restoreBodyScroll();">&times;</button>
+                        </div>
+                        <div class="modal-body" style="padding:16px 20px;">
+                            <div style="font-size:0.88rem;color:var(--text-muted);margin-bottom:14px;">${this.escapeHtml(label)}을 어떤 방식으로 내보낼까요?</div>
+                            <div style="display:flex;flex-direction:column;gap:10px;">
+                                <button class="btn btn-accent" style="padding:14px 16px;text-align:left;display:flex;align-items:center;gap:12px;"
+                                    onclick="this.closest('.modal').remove();app.restoreBodyScroll();app.exportMultipleWorkflowPackages(${JSON.stringify(workflowIds)},{keepState:true})">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                                    <div>
+                                        <div style="font-weight:600;font-size:0.95rem;">현재 진행 상태 포함</div>
+                                        <div style="font-size:0.82rem;opacity:0.85;margin-top:2px;">완료·건너뜀 상태 그대로 — 업무 이관·인수인계용</div>
+                                    </div>
+                                </button>
+                                <button class="btn btn-secondary" style="padding:14px 16px;text-align:left;display:flex;align-items:center;gap:12px;"
+                                    onclick="this.closest('.modal').remove();app.restoreBodyScroll();app.exportMultipleWorkflowPackages(${JSON.stringify(workflowIds)},{keepState:false})">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+                                    <div>
+                                        <div style="font-weight:600;font-size:0.95rem;">초기화하여 내보내기</div>
+                                        <div style="font-size:0.82rem;opacity:0.85;margin-top:2px;">완료·건너뜀 제거 — 처음부터 다시 쓸 수 있는 형태</div>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="modal-footer" style="padding:12px 20px;">
+                            <button class="btn btn-ghost" style="width:100%;" onclick="this.closest('.modal').remove();app.restoreBodyScroll();">취소</button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(modal);
+            }
+
             async _shareExecute(modal) {
                 const selectedIds = Array.from(document.querySelectorAll('.share-wf-chk:checked'))
                     .map(chk => {
@@ -13698,11 +13741,13 @@ ${incompleteInfo}
 
                 modal.remove();
                 this.restoreBodyScroll();
-                await this.exportMultipleWorkflowPackages(selectedIds);
+                this.showExportStateChoiceModal(selectedIds);
             }
 
             // 여러 업무를 단일 패키지 파일로 내보내기 (서식 포함)
-            async exportMultipleWorkflowPackages(workflowIds) {
+            // opts.keepState = true → 완료·건너뜀 상태 그대로 포함 (이관·인수인계용)
+            // opts.keepState = false (기본) → 초기화하여 내보내기 (재사용 템플릿용)
+            async exportMultipleWorkflowPackages(workflowIds, opts = {}) {
                 this.showToast('info', '⏳', `${workflowIds.length}개 업무 파일 생성 중...`);
                 try {
                     const workflows = [];
@@ -13713,14 +13758,18 @@ ${incompleteInfo}
                         const wf = this.allData.workflows.find(w => String(w.id) === String(rawId) || w.id == rawId);
                         if (!wf) continue;
 
-                        // 조치결과 제외한 복사본
+                        // 복사본 생성
                         const wfCopy = JSON.parse(JSON.stringify(wf));
                         if (wfCopy.checklist) {
                             wfCopy.checklist.forEach(item => {
+                                // 조치결과·분기처리 항상 제외
                                 if (item.result) { item.result = { text: '', summary: '' }; }
                                 delete item.branchActionTaken;
-                                item.completed = false;
-                                delete item.skipped;
+                                // 진행 상태(완료·건너뜀)는 keepState 옵션에 따라 결정
+                                if (!opts.keepState) {
+                                    item.completed = false;
+                                    delete item.skipped;
+                                }
                             });
                         }
                         workflows.push(wfCopy);
@@ -19598,9 +19647,9 @@ ${aiPartnerCitationFirstRules}
                     const files = await this._getAllLibraryFiles();
                     console.log(`[임베딩 자동체크] 법령·매뉴얼 총 ${files.length}개 파일`);
 
-                    // v2 임베딩 미완료: embeddingModel이 없거나 v2가 아닌 파일
+                    // v2 임베딩 미완료: embeddingModel이 없거나 v2가 아닌 파일, 또는 768차원이 아닌 파일
                     const pending = files.filter(f =>
-                        !f.embeddingModel || f.embeddingModel !== EMB_MODEL
+                        !f.embeddingModel || f.embeddingModel !== EMB_MODEL || f.embeddingDims !== EMB_DIMS
                     );
                     console.log(`[임베딩 자동체크] v2 미완료 파일: ${pending.length}개 / 전체: ${files.length}개`);
 
@@ -19730,7 +19779,7 @@ ${aiPartnerCitationFirstRules}
                     if (!rawChunks.length) return false;
 
                     if (onStep) onStep(3);
-                    const BATCH = 100;
+                    const BATCH = 20;
                     const embeddedChunks = [];
                     let batchErrors = [];
                     for (let i = 0; i < rawChunks.length; i += BATCH) {
@@ -19741,8 +19790,20 @@ ${aiPartnerCitationFirstRules}
                         } catch(e) {
                             // 백그라운드 모드에서 429는 상위로 전파하여 큐가 재시도하도록 함
                             if (opts.background && e.isRateLimit) throw e;
-                            batchErrors.push(e.message || '알 수 없는 오류');
-                            batch.forEach(chunk => embeddedChunks.push(chunk));
+                            // 1회 재시도 (2초 대기)
+                            await new Promise(r => setTimeout(r, 2000));
+                            try {
+                                const vecs2 = await generateBatchEmbeddings(batch.map(c => c.text), apiKey);
+                                batch.forEach((chunk, j) => embeddedChunks.push({ ...chunk, embedding: vecs2[j] }));
+                            } catch(e2) {
+                                if (opts.background && e2.isRateLimit) throw e2;
+                                batchErrors.push(e2.message || '알 수 없는 오류');
+                                batch.forEach(chunk => embeddedChunks.push(chunk));
+                            }
+                        }
+                        // 배치 간 딜레이 (rate limit 방지)
+                        if (i + BATCH < rawChunks.length) {
+                            await new Promise(r => setTimeout(r, 1000));
                         }
                     }
 
@@ -19754,6 +19815,7 @@ ${aiPartnerCitationFirstRules}
                     libFile.embeddedChunkCount = successCount;
                     libFile.totalChunkCount = totalCount;
                     libFile.embeddingModel = EMB_MODEL;
+                    libFile.embeddingDims = EMB_DIMS;
                     libFile.embeddingError = batchErrors.length > 0 ? batchErrors[0] : null;
                     await this.dbManager.saveFile('lawLibrary', libFile);
                     return { success: true, successCount, totalCount, hasError: batchErrors.length > 0 };
@@ -28958,6 +29020,8 @@ ${originalContent}`;
         const EMB_STATS_KEY = 'embeddingUsageStats_v1';
         // Gemini Embedding 2 단일 모델 — v1(001) 폴백 제거
         const EMB_MODEL = 'gemini-embedding-2';
+        // 마트료시카 출력 차원 (3072 → 768): 저장 공간 75% 절감, 검색 속도 향상, 품질 유지
+        const EMB_DIMS = 768;
 
         function _loadEmbStats() {
             try {
@@ -29010,7 +29074,8 @@ ${originalContent}`;
                     body: JSON.stringify({
                         model: `models/${EMB_MODEL}`,
                         content: { parts: [{ text: text.substring(0, 2048) }] },
-                        taskType: 'RETRIEVAL_QUERY'
+                        taskType: 'RETRIEVAL_QUERY',
+                        outputDimensionality: EMB_DIMS
                     })
                 }
             );
@@ -29032,7 +29097,8 @@ ${originalContent}`;
             const requests = texts.map(t => ({
                 model: `models/${EMB_MODEL}`,
                 content: { parts: [{ text: t.substring(0, 2048) }] },
-                taskType: 'RETRIEVAL_DOCUMENT'
+                taskType: 'RETRIEVAL_DOCUMENT',
+                outputDimensionality: EMB_DIMS
             }));
             const resp = await fetch(
                 `https://generativelanguage.googleapis.com/v1beta/models/${EMB_MODEL}:batchEmbedContents?key=${apiKey}`,
