@@ -19170,6 +19170,50 @@ ${aiPartnerCitationFirstRules}
             async openLawLibrary() {
                 this.openModal('lawLibraryModal');
                 await this._renderLawLibraryList();
+                // 백그라운드 임베딩 중이면 인디케이터와 배너 복원
+                if (this._bgEmbRunning && this._bgEmbCurrentFile) {
+                    this._setLibraryUploadStatus(this._bgEmbCurrentFile, this._bgEmbCurrentStep || 3);
+                }
+                this._updateLibBgBanner();
+            }
+
+            // 법령 모달 상단 백그라운드 임베딩 진행 배너 갱신
+            _updateLibBgBanner() {
+                const bannerId = 'lib-bg-embed-banner';
+                const modal = document.getElementById('lawLibraryModal');
+                if (!modal) return;
+
+                // 모달이 열려 있지 않으면 무시
+                if (!modal.classList.contains('active') && modal.style.display === 'none') return;
+
+                let banner = document.getElementById(bannerId);
+
+                if (!this._bgEmbRunning || !this._bgEmbQueue || this._bgEmbQueue.length === 0) {
+                    if (banner) banner.remove();
+                    return;
+                }
+
+                const total = (this._bgEmbQueue.length || 0) + (this._bgEmbCurrentFile ? 1 : 0);
+                const done = total - (this._bgEmbQueue.length || 0) - (this._bgEmbCurrentFile ? 1 : 0);
+                const fileName = this._bgEmbCurrentFile ? this.escapeHtml(this._bgEmbCurrentFile) : '';
+                const stepLabel = { 1:'저장 중', 2:'분석 중', 3:'임베딩 중' }[this._bgEmbCurrentStep] || '처리 중';
+                const remainCount = this._bgEmbQueue.length;
+
+                const html = `<div id="${bannerId}" style="margin:8px 16px 0;padding:8px 12px;background:rgba(37,99,235,0.06);border:1px solid rgba(37,99,235,0.2);border-radius:7px;display:flex;align-items:center;gap:8px;">`
+                    + `<div class="btn-spinner-blue" style="width:12px;height:12px;border-width:1.5px;flex-shrink:0;"></div>`
+                    + `<div style="flex:1;min-width:0;">`
+                    + `<div style="font-size:0.78rem;font-weight:600;color:var(--accent);">백그라운드 임베딩 진행 중</div>`
+                    + (fileName ? `<div style="font-size:0.71rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${fileName}">현재: ${fileName} (${stepLabel})</div>` : '')
+                    + `<div style="font-size:0.69rem;color:var(--text-muted);margin-top:1px;">대기 중 ${remainCount}개 파일</div>`
+                    + `</div>`
+                    + `</div>`;
+
+                if (!banner) {
+                    const listEl = document.getElementById('lawLibraryList');
+                    if (listEl) listEl.insertAdjacentHTML('beforebegin', html);
+                } else {
+                    banner.outerHTML = html;
+                }
             }
 
             // 자료실 업로드 진행 상태 표시 (포커스 모드 인디케이터와 동일한 디자인)
@@ -19677,11 +19721,15 @@ ${aiPartnerCitationFirstRules}
             async _runBackgroundEmbeddingQueue() {
                 if (this._bgEmbRunning) return;
                 this._bgEmbRunning = true;
+                this._bgEmbRetry = {};        // 파일별 429 재시도 횟수
+                this._bgEmbCurrentFile = null;
+                this._bgEmbCurrentStep = null;
                 const apiKey = this.allData.geminiApiKey;
                 const total = this._bgEmbQueue.length;
                 let done = 0, skipped = 0;
 
                 console.log(`[임베딩 큐] 시작 — ${total}개 파일 처리 예정`);
+                this._updateLibBgBanner();
 
                 while (this._bgEmbQueue && this._bgEmbQueue.length > 0) {
                     // 일일 한도 체크
@@ -19697,23 +19745,40 @@ ${aiPartnerCitationFirstRules}
                         const f = await this._getLibraryFileById(fileId);
                         if (!f) {
                             console.warn(`[임베딩 큐] ID ${fileId} 파일 없음 → 건너뜀`);
-                            this._bgEmbQueue.shift(); skipped++; continue;
+                            this._bgEmbQueue.shift(); skipped++; this._updateLibBgBanner(); continue;
                         }
                         console.log(`[임베딩 큐] 처리 중: "${f.name}" (${done + 1}/${total})`);
+                        this._bgEmbCurrentFile = f.name;
+                        this._bgEmbCurrentStep = 1;
+                        this._updateLibBgBanner();
 
-                        const result = await this._generateAndStoreLibraryEmbeddings(fileId, apiKey, null, { background: true });
+                        const result = await this._generateAndStoreLibraryEmbeddings(
+                            fileId, apiKey,
+                            (step) => {
+                                this._bgEmbCurrentStep = step;
+                                this._setLibraryUploadStatus(f.name, step);
+                            },
+                            { background: true }
+                        );
 
                         if (result === false) {
-                            // blob 없거나 텍스트 추출 실패 — 건너뜀
                             console.warn(`[임베딩 큐] "${f.name}" blob 없음 또는 텍스트 추출 실패 → 건너뜀`);
-                            this._bgEmbQueue.shift(); skipped++; continue;
+                            this._bgEmbQueue.shift(); skipped++;
+                            this._setLibraryUploadStatus(null, null);
+                            this._bgEmbCurrentFile = null;
+                            this._updateLibBgBanner();
+                            continue;
                         }
 
                         this._bgEmbAddTodayCount(1);
                         this._bgEmbQueue.shift();
+                        delete this._bgEmbRetry[fileId];
                         done++;
+                        this._setLibraryUploadStatus(null, null);
+                        this._bgEmbCurrentFile = null;
                         const remain = this._bgEmbQueue.length;
                         console.log(`[임베딩 큐] "${f.name}" 완료 (${done}/${total}) — 남은 ${remain}개`);
+                        this._updateLibBgBanner();
 
                         if (remain > 0 && done % 3 === 0) {
                             this.showToast('info', '🔄', `임베딩 진행 중 (${done}/${total}건 완료) — 남은 ${remain}개`, 5000);
@@ -19722,19 +19787,38 @@ ${aiPartnerCitationFirstRules}
                         await new Promise(r => setTimeout(r, 1200));
                     } catch(e) {
                         if (e.isRateLimit) {
-                            console.log('[임베딩 큐] 429 한도 초과 — 65초 후 재시도');
-                            this.showToast('info', '⏳', '임베딩 분당 한도 초과 — 1분 후 자동 재시도', 8000);
-                            await new Promise(r => setTimeout(r, 65000));
+                            const retries = (this._bgEmbRetry[fileId] || 0) + 1;
+                            this._bgEmbRetry[fileId] = retries;
+                            if (retries >= 3) {
+                                // 3회 초과 시 해당 파일 건너뜀 — 무한 루프 차단
+                                console.warn(`[임베딩 큐] ID ${fileId} 429 ${retries}회 반복 → 건너뜀`);
+                                this.showToast('info', '⏭️', `임베딩 한도 반복 초과 — 다음 파일로 건너뜀`, 6000);
+                                this._bgEmbQueue.shift(); skipped++;
+                                this._setLibraryUploadStatus(null, null);
+                                this._bgEmbCurrentFile = null;
+                                this._updateLibBgBanner();
+                            } else {
+                                console.log(`[임베딩 큐] 429 한도 초과 (${retries}/3) — 65초 후 재시도`);
+                                this.showToast('info', '⏳', `임베딩 분당 한도 초과 — 1분 후 자동 재시도 (${retries}/3)`, 8000);
+                                await new Promise(r => setTimeout(r, 65000));
+                            }
                         } else {
                             console.warn(`[임베딩 큐] ID ${fileId} 오류 → 건너뜀:`, e.message);
-                            this._bgEmbQueue.shift();
-                            skipped++;
+                            this._bgEmbQueue.shift(); skipped++;
+                            this._setLibraryUploadStatus(null, null);
+                            this._bgEmbCurrentFile = null;
+                            this._updateLibBgBanner();
                         }
                     }
                 }
 
                 this._bgEmbRunning = false;
+                this._bgEmbCurrentFile = null;
+                this._bgEmbCurrentStep = null;
+                this._bgEmbRetry = {};
                 console.log(`[임베딩 큐] 종료 — 완료 ${done}개 / 건너뜀 ${skipped}개`);
+                this._setLibraryUploadStatus(null, null);
+                this._updateLibBgBanner();
 
                 if (!this._bgEmbQueue || this._bgEmbQueue.length === 0) {
                     if (done > 0) {
