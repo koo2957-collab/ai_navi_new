@@ -19576,24 +19576,52 @@ ${aiPartnerCitationFirstRules}
             // 앱 시작 시 호출 — v2 미완료 파일 감지 후 백그라운드 큐 시작
             async _startBackgroundEmbeddingCheck() {
                 const apiKey = this.allData.geminiApiKey;
-                if (!apiKey) return;
+
+                // API 키 없으면 안내 없이 조용히 종료 (키 미설정 사용자는 임베딩 불필요)
+                if (!apiKey) {
+                    console.log('[임베딩 자동체크] Gemini API 키 없음 → 건너뜀');
+                    return;
+                }
+                // IndexedDB 준비 안 됐으면 종료
+                if (!this.dbReady) {
+                    console.log('[임베딩 자동체크] IndexedDB 미준비 → 건너뜀');
+                    return;
+                }
+                // 이미 실행 중이면 중복 방지
+                if (this._bgEmbRunning) {
+                    console.log('[임베딩 자동체크] 이미 실행 중');
+                    return;
+                }
+
                 try {
+                    console.log('[임베딩 자동체크] 파일 목록 조회 중...');
                     const files = await this._getAllLibraryFiles();
+                    console.log(`[임베딩 자동체크] 법령·매뉴얼 총 ${files.length}개 파일`);
+
                     // v2 임베딩 미완료: embeddingModel이 없거나 v2가 아닌 파일
                     const pending = files.filter(f =>
                         !f.embeddingModel || f.embeddingModel !== EMB_MODEL
                     );
-                    if (pending.length === 0) return;
-                    if (this._bgEmbRunning) return;
+                    console.log(`[임베딩 자동체크] v2 미완료 파일: ${pending.length}개 / 전체: ${files.length}개`);
 
-                    if (this._bgEmbDailyExhausted()) {
-                        this.showToast('info', '⏳', `임베딩 대기 중 — ${pending.length}개 파일 (오늘 일일 한도 도달, 내일 자동 재개)`);
+                    if (pending.length === 0) {
+                        console.log('[임베딩 자동체크] 모든 파일 v2 임베딩 완료 상태 — 작업 없음');
                         return;
                     }
+
+                    if (this._bgEmbDailyExhausted()) {
+                        console.log('[임베딩 자동체크] 오늘 일일 한도 소진');
+                        this.showToast('info', '⏳', `임베딩 대기 중 — ${pending.length}개 파일 (오늘 일일 한도 도달, 내일 자동 재개)`, 8000);
+                        return;
+                    }
+
                     this._bgEmbQueue = pending.map(f => f.id);
-                    this.showToast('info', '🔄', `${pending.length}개 파일 임베딩 백그라운드 시작...`);
+                    console.log(`[임베딩 자동체크] 큐 시작: ${pending.length}개 파일`);
+                    this.showToast('info', '🔄', `법령·매뉴얼 ${pending.length}개 파일 임베딩 자동 시작 (백그라운드)`, 8000);
                     this._runBackgroundEmbeddingQueue();
-                } catch(e) { console.warn('백그라운드 임베딩 체크 오류:', e); }
+                } catch(e) {
+                    console.warn('[임베딩 자동체크] 오류:', e);
+                }
             }
 
             // 백그라운드 임베딩 큐 처리 루프
@@ -19602,48 +19630,69 @@ ${aiPartnerCitationFirstRules}
                 this._bgEmbRunning = true;
                 const apiKey = this.allData.geminiApiKey;
                 const total = this._bgEmbQueue.length;
-                let done = 0;
+                let done = 0, skipped = 0;
+
+                console.log(`[임베딩 큐] 시작 — ${total}개 파일 처리 예정`);
 
                 while (this._bgEmbQueue && this._bgEmbQueue.length > 0) {
                     // 일일 한도 체크
                     if (this._bgEmbDailyExhausted()) {
                         const remain = this._bgEmbQueue.length;
-                        this.showToast('info', '⏳', `오늘 임베딩 한도 도달 — 남은 ${remain}개 파일 내일 자동 재개`);
+                        console.log(`[임베딩 큐] 일일 한도 소진 — 남은 ${remain}개 내일 재개`);
+                        this.showToast('info', '⏳', `오늘 임베딩 한도 도달 — 남은 ${remain}개 파일 내일 자동 재개`, 8000);
                         break;
                     }
 
                     const fileId = this._bgEmbQueue[0];
                     try {
                         const f = await this._getLibraryFileById(fileId);
-                        if (!f) { this._bgEmbQueue.shift(); done++; continue; }
+                        if (!f) {
+                            console.warn(`[임베딩 큐] ID ${fileId} 파일 없음 → 건너뜀`);
+                            this._bgEmbQueue.shift(); skipped++; continue;
+                        }
+                        console.log(`[임베딩 큐] 처리 중: "${f.name}" (${done + 1}/${total})`);
 
-                        await this._generateAndStoreLibraryEmbeddings(fileId, apiKey, null, { background: true });
+                        const result = await this._generateAndStoreLibraryEmbeddings(fileId, apiKey, null, { background: true });
+
+                        if (result === false) {
+                            // blob 없거나 텍스트 추출 실패 — 건너뜀
+                            console.warn(`[임베딩 큐] "${f.name}" blob 없음 또는 텍스트 추출 실패 → 건너뜀`);
+                            this._bgEmbQueue.shift(); skipped++; continue;
+                        }
+
                         this._bgEmbAddTodayCount(1);
                         this._bgEmbQueue.shift();
                         done++;
                         const remain = this._bgEmbQueue.length;
+                        console.log(`[임베딩 큐] "${f.name}" 완료 (${done}/${total}) — 남은 ${remain}개`);
+
                         if (remain > 0 && done % 3 === 0) {
-                            this.showToast('info', '🔄', `임베딩 진행 중 (${done}/${total}) — 남은 ${remain}개`);
+                            this.showToast('info', '🔄', `임베딩 진행 중 (${done}/${total}건 완료) — 남은 ${remain}개`, 5000);
                         }
-                        // 파일 간 1초 딜레이 (RPM 안전 마진)
+                        // 파일 간 딜레이 (RPM 안전 마진)
                         await new Promise(r => setTimeout(r, 1200));
                     } catch(e) {
                         if (e.isRateLimit) {
-                            // RPM 429: 65초 대기 후 같은 파일 재시도
-                            this.showToast('info', '⏳', '임베딩 분당 한도 초과 — 1분 후 자동 재시도');
+                            console.log('[임베딩 큐] 429 한도 초과 — 65초 후 재시도');
+                            this.showToast('info', '⏳', '임베딩 분당 한도 초과 — 1분 후 자동 재시도', 8000);
                             await new Promise(r => setTimeout(r, 65000));
                         } else {
-                            // 다른 오류: 해당 파일 건너뜀
+                            console.warn(`[임베딩 큐] ID ${fileId} 오류 → 건너뜀:`, e.message);
                             this._bgEmbQueue.shift();
-                            done++;
+                            skipped++;
                         }
                     }
                 }
 
                 this._bgEmbRunning = false;
+                console.log(`[임베딩 큐] 종료 — 완료 ${done}개 / 건너뜀 ${skipped}개`);
 
                 if (!this._bgEmbQueue || this._bgEmbQueue.length === 0) {
-                    this.showToast('success', '✅', `모든 파일 임베딩 완료 (${done}개 파일 · Gemini Embedding 2)`);
+                    if (done > 0) {
+                        this.showToast('success', '✅', `임베딩 완료 — ${done}개 파일 처리됨 (Gemini Embedding 2)`, 8000);
+                    } else if (skipped > 0) {
+                        this.showToast('info', '⚠️', `임베딩 처리 불가 파일 ${skipped}개 — 파일이 손상되었거나 텍스트 추출 불가`, 8000);
+                    }
                     try {
                         const prevStates = this._getLibraryAccordionStates();
                         await this._renderLawLibraryList();
