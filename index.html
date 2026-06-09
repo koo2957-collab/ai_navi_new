@@ -6315,6 +6315,9 @@
 
                 // 데이터 로드 및 화면 그리기가 끝났으므로 시작 로딩 화면을 닫음
                 this.hideAppLoadingOverlay();
+
+                // 앱 시작 3초 후 백그라운드 임베딩 체크 (v2 미완료 파일 자동 처리)
+                setTimeout(() => this._startBackgroundEmbeddingCheck(), 3000);
             }
 
             // 시작 로딩 화면 닫기 (서서히 사라진 뒤 DOM에서 제거)
@@ -19535,9 +19538,126 @@ ${aiPartnerCitationFirstRules}
                 }
             }
 
+            // ── 백그라운드 자동 임베딩 시스템 ────────────────────────────────────
+            // 앱 시작 시 v2 미완료 파일을 자동 감지하여 무료 한도(RPD 1000/일) 내에서 처리
+            // localStorage 키: emb_bg_daily  →  { date: 'YYYY-MM-DD', count: N }
+
+            _bgEmbGetDailyState() {
+                try {
+                    const raw = localStorage.getItem('emb_bg_daily');
+                    if (!raw) return { date: '', count: 0 };
+                    return JSON.parse(raw);
+                } catch(e) { return { date: '', count: 0 }; }
+            }
+            _bgEmbSaveDailyState(state) {
+                try { localStorage.setItem('emb_bg_daily', JSON.stringify(state)); } catch(e) {}
+            }
+            // 오늘 UTC 날짜 문자열 (YYYY-MM-DD) — RPD는 UTC 자정 기준 리셋
+            _bgEmbTodayUTC() {
+                return new Date().toISOString().slice(0, 10);
+            }
+            // 오늘 사용 요청 수 반환 (날짜 변경 시 자동 리셋)
+            _bgEmbGetTodayCount() {
+                const state = this._bgEmbGetDailyState();
+                if (state.date !== this._bgEmbTodayUTC()) return 0;
+                return state.count || 0;
+            }
+            _bgEmbAddTodayCount(n = 1) {
+                const today = this._bgEmbTodayUTC();
+                const state = this._bgEmbGetDailyState();
+                const base = state.date === today ? (state.count || 0) : 0;
+                this._bgEmbSaveDailyState({ date: today, count: base + n });
+            }
+            // 오늘 RPD 소진 여부 (안전 마진: 950/1000)
+            _bgEmbDailyExhausted() {
+                return this._bgEmbGetTodayCount() >= 950;
+            }
+
+            // 앱 시작 시 호출 — v2 미완료 파일 감지 후 백그라운드 큐 시작
+            async _startBackgroundEmbeddingCheck() {
+                const apiKey = this.allData.geminiApiKey;
+                if (!apiKey) return;
+                try {
+                    const files = await this._getAllLibraryFiles();
+                    // v2 임베딩 미완료: embeddingModel이 없거나 v2가 아닌 파일
+                    const pending = files.filter(f =>
+                        !f.embeddingModel || f.embeddingModel !== EMB_MODEL
+                    );
+                    if (pending.length === 0) return;
+                    if (this._bgEmbRunning) return;
+
+                    if (this._bgEmbDailyExhausted()) {
+                        this.showToast('info', '⏳', `임베딩 대기 중 — ${pending.length}개 파일 (오늘 일일 한도 도달, 내일 자동 재개)`);
+                        return;
+                    }
+                    this._bgEmbQueue = pending.map(f => f.id);
+                    this.showToast('info', '🔄', `${pending.length}개 파일 임베딩 백그라운드 시작...`);
+                    this._runBackgroundEmbeddingQueue();
+                } catch(e) { console.warn('백그라운드 임베딩 체크 오류:', e); }
+            }
+
+            // 백그라운드 임베딩 큐 처리 루프
+            async _runBackgroundEmbeddingQueue() {
+                if (this._bgEmbRunning) return;
+                this._bgEmbRunning = true;
+                const apiKey = this.allData.geminiApiKey;
+                const total = this._bgEmbQueue.length;
+                let done = 0;
+
+                while (this._bgEmbQueue && this._bgEmbQueue.length > 0) {
+                    // 일일 한도 체크
+                    if (this._bgEmbDailyExhausted()) {
+                        const remain = this._bgEmbQueue.length;
+                        this.showToast('info', '⏳', `오늘 임베딩 한도 도달 — 남은 ${remain}개 파일 내일 자동 재개`);
+                        break;
+                    }
+
+                    const fileId = this._bgEmbQueue[0];
+                    try {
+                        const f = await this._getLibraryFileById(fileId);
+                        if (!f) { this._bgEmbQueue.shift(); done++; continue; }
+
+                        await this._generateAndStoreLibraryEmbeddings(fileId, apiKey, null, { background: true });
+                        this._bgEmbAddTodayCount(1);
+                        this._bgEmbQueue.shift();
+                        done++;
+                        const remain = this._bgEmbQueue.length;
+                        if (remain > 0 && done % 3 === 0) {
+                            this.showToast('info', '🔄', `임베딩 진행 중 (${done}/${total}) — 남은 ${remain}개`);
+                        }
+                        // 파일 간 1초 딜레이 (RPM 안전 마진)
+                        await new Promise(r => setTimeout(r, 1200));
+                    } catch(e) {
+                        if (e.isRateLimit) {
+                            // RPM 429: 65초 대기 후 같은 파일 재시도
+                            this.showToast('info', '⏳', '임베딩 분당 한도 초과 — 1분 후 자동 재시도');
+                            await new Promise(r => setTimeout(r, 65000));
+                        } else {
+                            // 다른 오류: 해당 파일 건너뜀
+                            this._bgEmbQueue.shift();
+                            done++;
+                        }
+                    }
+                }
+
+                this._bgEmbRunning = false;
+
+                if (!this._bgEmbQueue || this._bgEmbQueue.length === 0) {
+                    this.showToast('success', '✅', `모든 파일 임베딩 완료 (${done}개 파일 · Gemini Embedding 2)`);
+                    try {
+                        const prevStates = this._getLibraryAccordionStates();
+                        await this._renderLawLibraryList();
+                        this._applyLibraryAccordionStates(prevStates);
+                    } catch(_) {}
+                }
+            }
+
+            // ─────────────────────────────────────────────────────────────────────
+
             // 자료실 파일 임베딩 생성 및 IndexedDB 저장
             // onStep(2): 분석 시작, onStep(3): 임베딩 API 호출 시작
-            async _generateAndStoreLibraryEmbeddings(libFileId, apiKey, onStep = null) {
+            // opts.background=true 시 429 오류를 상위로 전파 (백그라운드 큐 재시도용)
+            async _generateAndStoreLibraryEmbeddings(libFileId, apiKey, onStep = null, opts = {}) {
                 try {
                     const libFile = await this._getLibraryFileById(libFileId);
                     if (!libFile || !libFile.blob) return false;
@@ -19570,6 +19690,8 @@ ${aiPartnerCitationFirstRules}
                             const vecs = await generateBatchEmbeddings(batch.map(c => c.text), apiKey);
                             batch.forEach((chunk, j) => embeddedChunks.push({ ...chunk, embedding: vecs[j] }));
                         } catch(e) {
+                            // 백그라운드 모드에서 429는 상위로 전파하여 큐가 재시도하도록 함
+                            if (opts.background && e.isRateLimit) throw e;
                             batchErrors.push(e.message || '알 수 없는 오류');
                             batch.forEach(chunk => embeddedChunks.push(chunk));
                         }
@@ -19582,10 +19704,13 @@ ${aiPartnerCitationFirstRules}
                     libFile.embeddedAt = new Date().toISOString();
                     libFile.embeddedChunkCount = successCount;
                     libFile.totalChunkCount = totalCount;
+                    libFile.embeddingModel = EMB_MODEL;
                     libFile.embeddingError = batchErrors.length > 0 ? batchErrors[0] : null;
                     await this.dbManager.saveFile('lawLibrary', libFile);
                     return { success: true, successCount, totalCount, hasError: batchErrors.length > 0 };
                 } catch(e) {
+                    // 429는 호출자(백그라운드 큐)가 처리하도록 재전파
+                    if (e.isRateLimit) throw e;
                     console.warn('임베딩 생성 오류:', e);
                     // 오류 정보를 파일에 저장 (다음에 확인 가능하도록)
                     try {
@@ -28774,7 +28899,7 @@ ${originalContent}`;
         }
         
         // ============================================
-        // 임베딩 기반 시맨틱 검색 (Gemini text-embedding-004)
+        // 임베딩 기반 시맨틱 검색 (Gemini Embedding 2 단일 모델)
         // ============================================
 
         // 세션 내 질문 임베딩 캐시 (같은 질문 반복 시 API 재호출 방지)
@@ -28782,7 +28907,8 @@ ${originalContent}`;
 
         // ── 임베딩 API 사용량 추적 (localStorage 기반, 일일 자동 리셋)
         const EMB_STATS_KEY = 'embeddingUsageStats_v1';
-        const EMB_MODELS = ['gemini-embedding-2', 'gemini-embedding-001'];
+        // Gemini Embedding 2 단일 모델 — v1(001) 폴백 제거
+        const EMB_MODEL = 'gemini-embedding-2';
 
         function _loadEmbStats() {
             try {
@@ -28823,68 +28949,58 @@ ${originalContent}`;
             return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-8);
         }
 
-        // 임베딩 모델 우선순위: Embedding 2 먼저, 한도 초과 시 Embedding 1 자동 전환
-        const EMBEDDING_MODELS = ['gemini-embedding-2', 'gemini-embedding-001'];
-
+        // 검색 쿼리 임베딩 — RETRIEVAL_QUERY task_type으로 검색 의도 명시
         async function generateEmbedding(text, apiKey) {
-            // 세션 캐시 확인 (질문 앞 300자를 키로 사용)
             const cacheKey = text.substring(0, 300);
             if (_embeddingCache.has(cacheKey)) return _embeddingCache.get(cacheKey);
-
-            let lastErr;
-            for (const model of EMBEDDING_MODELS) {
-                try {
-                    const resp = await fetch(
-                        `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`,
-                        {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                model: `models/${model}`,
-                                content: { parts: [{ text: text.substring(0, 2048) }] }
-                            })
-                        }
-                    );
-                    // 429: 한도 초과 → 다음 모델 시도
-                    if (resp.status === 429) { _trackEmbeddingCall(model, 'ratelimit'); lastErr = new Error(`${model} 한도 초과`); continue; }
-                    if (!resp.ok) { _trackEmbeddingCall(model, false); throw new Error(`Embedding API ${resp.status}`); }
-                    const data = await resp.json();
-                    const vec = data.embedding.values;
-                    _trackEmbeddingCall(model, true);
-                    // 캐시 저장 (최대 100개)
-                    if (_embeddingCache.size >= 100) _embeddingCache.delete(_embeddingCache.keys().next().value);
-                    _embeddingCache.set(cacheKey, vec);
-                    return vec;
-                } catch(e) { lastErr = e; }
+            const resp = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${EMB_MODEL}:embedContent?key=${apiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: `models/${EMB_MODEL}`,
+                        content: { parts: [{ text: text.substring(0, 2048) }] },
+                        taskType: 'RETRIEVAL_QUERY'
+                    })
+                }
+            );
+            if (resp.status === 429) {
+                _trackEmbeddingCall(EMB_MODEL, 'ratelimit');
+                throw Object.assign(new Error('임베딩 API 한도 초과 (429)'), { isRateLimit: true });
             }
-            throw lastErr;
+            if (!resp.ok) { _trackEmbeddingCall(EMB_MODEL, false); throw new Error(`Embedding API ${resp.status}`); }
+            const data = await resp.json();
+            const vec = data.embedding.values;
+            _trackEmbeddingCall(EMB_MODEL, true);
+            if (_embeddingCache.size >= 100) _embeddingCache.delete(_embeddingCache.keys().next().value);
+            _embeddingCache.set(cacheKey, vec);
+            return vec;
         }
 
+        // 문서 청크 배치 임베딩 — RETRIEVAL_DOCUMENT task_type으로 저장 용도 명시
         async function generateBatchEmbeddings(texts, apiKey) {
-            let lastErr;
-            for (const model of EMBEDDING_MODELS) {
-                try {
-                    const requests = texts.map(t => ({
-                        model: `models/${model}`,
-                        content: { parts: [{ text: t.substring(0, 2048) }] }
-                    }));
-                    const resp = await fetch(
-                        `https://generativelanguage.googleapis.com/v1beta/models/${model}:batchEmbedContents?key=${apiKey}`,
-                        {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ requests })
-                        }
-                    );
-                    // 429: 한도 초과 → 다음 모델 시도
-                    if (resp.status === 429) { _trackEmbeddingCall(model, 'ratelimit'); lastErr = new Error(`${model} 한도 초과`); continue; }
-                    if (!resp.ok) { _trackEmbeddingCall(model, false); throw new Error(`Batch embedding API ${resp.status}`); }
-                    const data = await resp.json();
-                    _trackEmbeddingCall(model, true);
-                    return data.embeddings.map(e => e.values);
-                } catch(e) { lastErr = e; }
+            const requests = texts.map(t => ({
+                model: `models/${EMB_MODEL}`,
+                content: { parts: [{ text: t.substring(0, 2048) }] },
+                taskType: 'RETRIEVAL_DOCUMENT'
+            }));
+            const resp = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${EMB_MODEL}:batchEmbedContents?key=${apiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ requests })
+                }
+            );
+            if (resp.status === 429) {
+                _trackEmbeddingCall(EMB_MODEL, 'ratelimit');
+                throw Object.assign(new Error('임베딩 배치 API 한도 초과 (429)'), { isRateLimit: true });
             }
-            throw lastErr;
+            if (!resp.ok) { _trackEmbeddingCall(EMB_MODEL, false); throw new Error(`Batch embedding API ${resp.status}`); }
+            const data = await resp.json();
+            _trackEmbeddingCall(EMB_MODEL, true);
+            return data.embeddings.map(e => e.values);
         }
 
         async function searchChunksByEmbedding(embeddedChunks, questionText, apiKey, maxChunks = 8) {
