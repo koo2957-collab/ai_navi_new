@@ -19667,17 +19667,17 @@ ${aiPartnerCitationFirstRules}
                     if (!text || text.length < 50) return false;
 
                     // 대용량 문서(320KB+): 전체를 청킹하면 브라우저가 멈춤
-                    // → 문서 전체에서 10곳을 균등하게 골라 32KB씩만 가져온 뒤 청킹
-                    // → createSemanticChunks가 처리할 텍스트를 최대 320KB로 제한
+                    // → 문서 전체에서 10곳을 균등하게 골라 50KB씩만 가져온 뒤 청킹
+                    // → createSemanticChunks가 처리할 텍스트를 최대 500KB로 제한
                     let textToChunk = text;
-                    if (text.length > 320000) {
+                    if (text.length > 500000) {
                         const step = Math.floor(text.length / 10);
                         textToChunk = Array.from({length: 10}, (_, i) =>
-                            text.substring(i * step, i * step + 32000)
+                            text.substring(i * step, i * step + 50000)
                         ).join('\n\n');
                     }
 
-                    let rawChunks = createSemanticChunks(textToChunk, 800, 100);
+                    let rawChunks = createSemanticChunks(textToChunk, 1200, 150);
                     if (!rawChunks.length) return false;
 
                     if (onStep) onStep(3);
@@ -29273,7 +29273,7 @@ ${originalContent}`;
 
             // 대용량 문서 브라우저 멈춤 방지: TF-IDF 경로는 최대 80,000자만 처리
             // (임베딩이 있는 파일은 이 함수를 호출하지 않으므로 여기 오는 건 임베딩 없는 파일)
-            const safeContent = docContent.length > 80000 ? docContent.substring(0, 80000) : docContent;
+            const safeContent = docContent.length > 150000 ? docContent.substring(0, 150000) : docContent;
 
             // 의미 단위로 청킹
             const chunks = createSemanticChunks(safeContent, 800, 100);
