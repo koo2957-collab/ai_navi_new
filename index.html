@@ -19692,9 +19692,15 @@ ${aiPartnerCitationFirstRules}
                     console.log(`[임베딩 자동체크] 법령·매뉴얼 총 ${files.length}개 파일`);
 
                     // v2 임베딩 미완료: embeddingModel이 없거나 v2가 아닌 파일, 또는 768차원이 아닌 파일
-                    const pending = files.filter(f =>
-                        !f.embeddingModel || f.embeddingModel !== EMB_MODEL || f.embeddingDims !== EMB_DIMS
-                    );
+                    // 오늘 429 실패로 건너뛴 파일은 다음날 재시도 (날짜 기준)
+                    const today = this._bgEmbTodayUTC();
+                    const pending = files.filter(f => {
+                        const needsEmbed = !f.embeddingModel || f.embeddingModel !== EMB_MODEL || f.embeddingDims !== EMB_DIMS;
+                        if (!needsEmbed) return false;
+                        // 오늘 이미 429 최대 실패한 파일은 제외 (내일 재시도)
+                        if (f.embRateLimit429Date === today) return false;
+                        return true;
+                    });
                     console.log(`[임베딩 자동체크] v2 미완료 파일: ${pending.length}개 / 전체: ${files.length}개`);
 
                     if (pending.length === 0) {
@@ -19708,6 +19714,8 @@ ${aiPartnerCitationFirstRules}
                         return;
                     }
 
+                    // 파일 크기 내림차순 정렬 — 큰 파일(청크 많은)을 API 한도 여유 있을 때 먼저 처리
+                    pending.sort((a, b) => (b.size || 0) - (a.size || 0));
                     this._bgEmbQueue = pending.map(f => f.id);
                     console.log(`[임베딩 자동체크] 큐 시작: ${pending.length}개 파일`);
                     this.showToast('info', '🔄', `법령·매뉴얼 ${pending.length}개 파일 임베딩 자동 시작 (백그라운드)`, 8000);
@@ -19790,9 +19798,16 @@ ${aiPartnerCitationFirstRules}
                             const retries = (this._bgEmbRetry[fileId] || 0) + 1;
                             this._bgEmbRetry[fileId] = retries;
                             if (retries >= 3) {
-                                // 3회 초과 시 해당 파일 건너뜀 — 무한 루프 차단
-                                console.warn(`[임베딩 큐] ID ${fileId} 429 ${retries}회 반복 → 건너뜀`);
-                                this.showToast('info', '⏭️', `임베딩 한도 반복 초과 — 다음 파일로 건너뜀`, 6000);
+                                // 3회 초과 시 해당 파일 건너뜀 — 오늘 날짜를 DB에 저장하여 내일 자동 재시도
+                                console.warn(`[임베딩 큐] ID ${fileId} 429 ${retries}회 반복 → 오늘 건너뜀, 내일 재시도`);
+                                this.showToast('info', '⏭️', `임베딩 한도 반복 초과 — 내일 자동 재시도`, 6000);
+                                try {
+                                    const failedFile = await this._getLibraryFileById(fileId);
+                                    if (failedFile) {
+                                        failedFile.embRateLimit429Date = this._bgEmbTodayUTC();
+                                        await this.dbManager.saveFile('lawLibrary', failedFile);
+                                    }
+                                } catch(_) {}
                                 this._bgEmbQueue.shift(); skipped++;
                                 this._setLibraryUploadStatus(null, null);
                                 this._bgEmbCurrentFile = null;
@@ -19887,9 +19902,9 @@ ${aiPartnerCitationFirstRules}
                                 batch.forEach(chunk => embeddedChunks.push(chunk));
                             }
                         }
-                        // 배치 간 딜레이: 35K TPM 한도 준수
+                        // 배치 간 딜레이: 30K TPM 한도 준수 (5개×1200자×1.5토큰≈9K, 20초→분당3배치≈27K)
                         if (i + BATCH < rawChunks.length) {
-                            await new Promise(r => setTimeout(r, 10000));
+                            await new Promise(r => setTimeout(r, 20000));
                         }
                     }
 
