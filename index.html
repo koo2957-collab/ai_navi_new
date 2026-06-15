@@ -19032,8 +19032,7 @@ ${aiPartnerCitationFirstRules}
                 const popup = document.createElement('div');
                 popup.id = 'lib-move-popup';
                 popup.className = 'lib-move-popup';
-                popup.style.top = (rect.bottom + 4) + 'px';
-                popup.style.left = Math.min(rect.left, window.innerWidth - 185) + 'px';
+                popup.style.visibility = 'hidden';
                 const icoFolder = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
                 const icoUng  = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
                 const items = [
@@ -19042,11 +19041,28 @@ ${aiPartnerCitationFirstRules}
                 ].map(g => `<div class="lib-move-item" onclick="app.moveLibraryFile(${fileId},${g.id == null ? 'null' : g.id});app.hideLibraryMovePopups()">${g.ico} ${this.escapeHtml(g.name)}</div>`).join('');
                 popup.innerHTML = `<div style="padding:5px 12px 4px;font-size:0.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">이동할 그룹 선택</div>${items}`;
                 document.body.appendChild(popup);
+
+                // 화면 밖으로 벗어나지 않도록 위치 보정 (아래 공간이 부족하면 버튼 위쪽에 표시)
+                const margin = 8;
+                const popupH = popup.offsetHeight;
+                const popupW = popup.offsetWidth;
+                let top = rect.bottom + 4;
+                if (top + popupH > window.innerHeight - margin) {
+                    top = Math.max(margin, rect.top - popupH - 4);
+                }
+                popup.style.top = top + 'px';
+                popup.style.left = Math.max(margin, Math.min(rect.left, window.innerWidth - popupW - margin)) + 'px';
+                popup.style.visibility = '';
+
                 setTimeout(() => document.addEventListener('click', this._libPopupClose = () => this.hideLibraryMovePopups(), { once: true }), 0);
             }
 
             hideLibraryMovePopups() {
                 document.getElementById('lib-move-popup')?.remove();
+                if (this._libPopupClose) {
+                    document.removeEventListener('click', this._libPopupClose);
+                    this._libPopupClose = null;
+                }
             }
 
             _getLibraryAccordionStates() {
