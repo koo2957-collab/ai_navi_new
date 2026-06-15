@@ -20671,7 +20671,8 @@ ${aiPartnerCitationFirstRules}
             }
 
             // 같은 이름 파일 처리 다이얼로그: 교체 / 번호 붙여 추가 / 취소
-            _showOverwriteConfirmDialog(fileName, onOverwrite, onAddNumbered, onCancel) {
+            // nextName: _generateUniqueDocName으로 미리 계산한 실제 저장될 이름
+            _showOverwriteConfirmDialog(fileName, nextName, onOverwrite, onAddNumbered, onCancel) {
                 const openModals = document.querySelectorAll('.modal.show');
                 if (openModals.length === 0) {
                     this.modalScrollPosition = window.pageYOffset || document.documentElement.scrollTop;
@@ -20686,16 +20687,13 @@ ${aiPartnerCitationFirstRules}
                 modal.style.alignItems = 'center';
                 modal.style.padding = '20px';
                 const close = (cb) => { this.removeModalAndRestoreScroll(modal); cb?.(); };
-                const lastDot = fileName.lastIndexOf('.');
-                const stem = lastDot >= 0 ? fileName.slice(0, lastDot) : fileName;
-                const ext  = lastDot >= 0 ? fileName.slice(lastDot) : '';
                 modal.innerHTML = `
                     <div class="modal-content" style="max-width:420px;">
                         <h2 style="margin:0 0 12px;font-size:1.05rem;">같은 이름의 파일이 있습니다</h2>
                         <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 18px;line-height:1.6;">"${this.escapeHtml(fileName)}"이(가) 서식·문서함에 이미 등록되어 있습니다.<br>어떻게 처리할까요?</p>
                         <div style="display:flex;flex-direction:column;gap:8px;">
                             <button class="btn btn-primary" id="owOverwriteBtn">교체 — 기존 파일을 새 파일로 덮어쓰기</button>
-                            <button class="btn btn-secondary" id="owNumberedBtn">번호 붙여 추가 — <span style="font-family:monospace;">${this.escapeHtml(stem)}(1)${this.escapeHtml(ext)}</span> 로 새로 저장</button>
+                            <button class="btn btn-secondary" id="owNumberedBtn">번호 붙여 추가 — <span style="font-family:monospace;">${this.escapeHtml(nextName)}</span> 로 새로 저장</button>
                             <button class="btn btn-white" id="owCancelBtn">취소</button>
                         </div>
                     </div>`;
@@ -20949,11 +20947,11 @@ ${aiPartnerCitationFirstRules}
                     this.showToast('success', '✅', '서식·문서함에 저장되고 연결되었습니다');
                 };
                 if (existing) {
-                    this._showOverwriteConfirmDialog(file.name,
+                    const nextName = await this._generateUniqueDocName(file.name);
+                    this._showOverwriteConfirmDialog(file.name, nextName,
                         async () => { await this._updateRepoDocumentRecord(existing, file, hash); await link(existing.id); },
                         async () => {
-                            const newName = await this._generateUniqueDocName(file.name);
-                            const renamedFile = new File([file], newName, { type: file.type });
+                            const renamedFile = new File([file], nextName, { type: file.type });
                             const newHash = await this.computeFileHash(renamedFile);
                             await link(await this._createRepoDocumentRecord(renamedFile, newHash, null));
                         },
@@ -20984,11 +20982,11 @@ ${aiPartnerCitationFirstRules}
                     this.showToast('success', '✅', '서식·문서함에 저장되고 연결되었습니다');
                 };
                 if (existing) {
-                    this._showOverwriteConfirmDialog(file.name,
+                    const nextName = await this._generateUniqueDocName(file.name);
+                    this._showOverwriteConfirmDialog(file.name, nextName,
                         async () => { await this._updateRepoDocumentRecord(existing, file, hash); await link(existing.id); },
                         async () => {
-                            const newName = await this._generateUniqueDocName(file.name);
-                            const renamedFile = new File([file], newName, { type: file.type });
+                            const renamedFile = new File([file], nextName, { type: file.type });
                             const newHash = await this.computeFileHash(renamedFile);
                             await link(await this._createRepoDocumentRecord(renamedFile, newHash, null));
                         },
