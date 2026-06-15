@@ -2600,6 +2600,11 @@
         .uploaded-file-size { font-size: 0.85rem; color: var(--text-gray); }
         .uploaded-file-remove { cursor: pointer; color: #ef4444; font-size: 1.2rem; padding: 5px; }
         .uploaded-file-remove:hover { transform: scale(1.2); }
+        /* 드래그앤드롭 파일 첨부 영역 */
+        .doc-drop-zone { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:10px 12px; border:1.5px dashed var(--border-light); border-radius:8px; cursor:pointer; color:var(--text-muted); font-size:0.78rem; background:var(--white); transition:border-color 0.15s, background 0.15s, color 0.15s; user-select:none; min-height:62px; }
+        .doc-drop-zone:hover { border-color:var(--accent); background:rgba(37,99,235,0.03); color:var(--accent); }
+        .doc-drop-zone.drag-over { border-color:var(--accent); background:rgba(37,99,235,0.08); color:var(--accent); border-style:solid; }
+        :root.dark-mode .doc-drop-zone { background:var(--bg-light); }
         
         /* 문서 관리 모달 탭 스타일 */
         .doc-manager-tab { padding: 12px 24px; border: none; border-radius: 10px 10px 0 0; font-weight: 600; cursor: pointer; transition: all 0.2s ease; background: var(--bg-light); color: var(--text-dark); }
@@ -4556,10 +4561,18 @@
                     </button>
                     <!-- 펼침 영역 -->
                     <div id="manualAiSection" style="display:none;padding:0 12px 12px;border-top:1px solid var(--border-subtle);">
-                        <div style="font-size:0.78rem;color:var(--text-gray);padding:8px 0 10px;line-height:1.5;">업무 내용에 절차·지시사항을 작성하고, 참고 문서(법령·지침·공문)를 첨부하면 AI가 체크리스트 초안을 생성합니다.</div>
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <input type="file" id="manualDocUpload" accept=".pdf,.docx,.txt,.md" multiple
-                                style="flex:1;font-size:0.8rem;padding:6px 8px;border:1px solid var(--border-light);border-radius:6px;color:var(--text-dark);background:var(--white);font-family:inherit;">
+                        <div style="font-size:0.78rem;color:var(--text-gray);padding:8px 0 10px;line-height:1.5;">업무 내용에 절차·지시사항을 작성하고, 참고 문서(법령·지침·공문)를 PDF로 첨부하면 AI가 서식·목차·조항 구조를 그대로 인식해 체크리스트 초안을 생성합니다.</div>
+                        <div style="display:flex;align-items:flex-start;gap:8px;">
+                            <div id="docDropZone" class="doc-drop-zone"
+                                 onclick="document.getElementById('manualDocUpload').click()"
+                                 ondragover="app._onDocDragOver(event)"
+                                 ondragleave="app._onDocDragLeave(event)"
+                                 ondrop="app._onDocDrop(event)">
+                                <input type="file" id="manualDocUpload" accept=".pdf" multiple style="display:none;">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                <span>PDF 드래그 또는 클릭해서 첨부</span>
+                                <span style="font-size:0.7rem;color:var(--text-muted);">PDF · 최대 50MB · 구조 인식 최적</span>
+                            </div>
                             <button onclick="app.fillChecklistWithAI()"
                                 style="flex-shrink:0;display:flex;align-items:center;gap:5px;padding:7px 13px;font-size:0.82rem;font-weight:700;background:var(--accent);color:white;border:none;border-radius:7px;cursor:pointer;font-family:inherit;white-space:nowrap;transition:background 0.15s;"
                                 onmouseover="this.style.background='var(--accent-dark)'"
@@ -10327,6 +10340,28 @@
                 document.getElementById('manualProjectName')?.focus();
             }
 
+            // 드래그앤드롭 파일 첨부 핸들러
+            _onDocDragOver(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const zone = document.getElementById('docDropZone');
+                if (zone) zone.classList.add('drag-over');
+            },
+            _onDocDragLeave(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const zone = document.getElementById('docDropZone');
+                if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove('drag-over');
+            },
+            _onDocDrop(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const zone = document.getElementById('docDropZone');
+                if (zone) zone.classList.remove('drag-over');
+                const files = e.dataTransfer?.files;
+                if (files && files.length > 0) this.handleFileUpload(files);
+            },
+
             // AI 보조 섹션 토글
             _toggleManualAiSection() {
                 const section = document.getElementById('manualAiSection');
@@ -10645,13 +10680,9 @@ ${writtenSection}${docSection}
                 }
                 if (checkType) {
                     const fn  = file.name.toLowerCase();
-                    const ok  = file.type === 'application/pdf' || fn.endsWith('.pdf')
-                             || file.type === 'text/plain'       || fn.endsWith('.txt')
-                             || fn.endsWith('.md')
-                             || fn.endsWith('.docx')
-                             || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                    const ok  = file.type === 'application/pdf' || fn.endsWith('.pdf');
                     if (!ok) {
-                        this.showToast('error', '⚠️', `${this.escapeHtml(file.name)}은(는) PDF · DOCX · TXT · MD 파일만 업로드 가능합니다`);
+                        this.showToast('error', '⚠️', `${this.escapeHtml(file.name)}은(는) PDF 파일만 업로드 가능합니다`);
                         return false;
                     }
                 }
@@ -10826,21 +10857,8 @@ ${writtenSection}${docSection}
                         
                         if (!base64Data) continue;
                         
-                        if (file.type === 'application/pdf') {
-                            parts.push({
-                                inline_data: {
-                                    mime_type: 'application/pdf',
-                                    data: base64Data
-                                }
-                            });
-                        } else {
-                            parts.push({
-                                inline_data: {
-                                    mime_type: file.type,
-                                    data: base64Data
-                                }
-                            });
-                        }
+                        // PDF: inline_data로 전송 (Gemini가 구조·서식 직접 인식)
+                        parts.push({ inline_data: { mime_type: 'application/pdf', data: base64Data } });
                     }
 
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
@@ -10880,6 +10898,18 @@ ${writtenSection}${docSection}
                     throw error;
                 }
             }
+
+            // mammoth.js 동적 로드 (DOCX 텍스트 추출용)
+            _loadMammoth() {
+                if (window.mammoth) return Promise.resolve(window.mammoth);
+                return new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js';
+                    s.onload = () => window.mammoth ? resolve(window.mammoth) : reject(new Error('mammoth 로드 실패'));
+                    s.onerror = () => reject(new Error('mammoth.js CDN 로드 실패 — 인터넷 연결을 확인하세요'));
+                    document.head.appendChild(s);
+                });
+            },
 
 
             selectReportType(type) {
