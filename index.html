@@ -19118,6 +19118,22 @@ ${aiPartnerCitationFirstRules}
                 }
             }
 
+            async shiftLibraryGroupOrder(groupId, direction) {
+                const groups = this._getLibraryGroups();
+                const sorted = [...groups].sort((a, b) => a.order - b.order);
+                const idx = sorted.findIndex(g => g.id === groupId);
+                const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+                if (swapIdx < 0 || swapIdx >= sorted.length) return;
+                const g1 = groups.find(g => g.id === sorted[idx].id);
+                const g2 = groups.find(g => g.id === sorted[swapIdx].id);
+                if (!g1 || !g2) return;
+                [g1.order, g2.order] = [g2.order, g1.order];
+                this._saveLibraryGroups(groups);
+                const prevStates = this._getLibraryAccordionStates();
+                await this._renderLawLibraryList();
+                this._applyLibraryAccordionStates(prevStates);
+            }
+
             async shiftLibraryFileOrder(fileId, direction) {
                 const allFiles = await this._getAllLibraryFiles();
                 const target = allFiles.find(f => f.id === fileId);
@@ -19349,7 +19365,7 @@ ${aiPartnerCitationFirstRules}
                     </div>`;
 
                 const orders = this._getLibraryFileSortOrders();
-                const renderGroup = (group, groupFiles, isUngrouped = false) => {
+                const renderGroup = (group, groupFiles, isUngrouped = false, isFirst = false, isLast = false) => {
                     const bdId = isUngrouped ? 'lib-group-bd-ungrouped' : `lib-group-bd-${group.id}`;
                     const nameId = isUngrouped ? 'lib-group-name-ungrouped' : `lib-group-name-${group.id}`;
                     const sorted = [...groupFiles].sort((a, b) => {
@@ -19360,7 +19376,9 @@ ${aiPartnerCitationFirstRules}
                     const isOpen = isUngrouped;
 
                     const hdrBtns = isUngrouped ? '' : `
-                        <div style="display:flex;gap:4px;flex-shrink:0;" onclick="event.stopPropagation()">
+                        <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;" onclick="event.stopPropagation()">
+                            <button class="lib-file-btn" style="width:18px;height:18px;${isFirst ? 'opacity:0.2;pointer-events:none;' : ''}" title="그룹 위로" onclick="app.shiftLibraryGroupOrder(${group.id},'up')">${icoUp}</button>
+                            <button class="lib-file-btn" style="width:18px;height:18px;${isLast  ? 'opacity:0.2;pointer-events:none;' : ''}" title="그룹 아래로" onclick="app.shiftLibraryGroupOrder(${group.id},'down')">${icoDn}</button>
                             <label class="lib-group-btn" style="color:var(--accent);border-color:rgba(37,99,235,0.25);">${icoPlus} 파일<input type="file" accept=".pdf,.docx,.txt,.md" multiple style="display:none;" onchange="app.addLawLibraryFilesToGroup(event,${group.id})"></label>
                             <button class="lib-group-btn" style="color:var(--text-muted);border-color:var(--border-subtle);padding:2px 6px;" onclick="app.startRenameLibraryGroup(${group.id})">✎</button>
                             <button class="lib-group-btn" style="color:#dc2626;border-color:rgba(220,38,38,0.25);" onclick="app.deleteLibraryGroup(${group.id})">삭제</button>
@@ -19388,9 +19406,10 @@ ${aiPartnerCitationFirstRules}
 
                 let html = '';
                 const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
-                for (const g of sortedGroups) {
+                for (let i = 0; i < sortedGroups.length; i++) {
+                    const g = sortedGroups[i];
                     const gFiles = files.filter(f => f.groupId === g.id);
-                    html += renderGroup(g, gFiles);
+                    html += renderGroup(g, gFiles, false, i === 0, i === sortedGroups.length - 1);
                 }
                 const ungrouped = files.filter(f => !f.groupId || !groups.find(g => g.id === f.groupId));
                 if (ungrouped.length > 0 || groups.length === 0) {
@@ -20095,6 +20114,52 @@ ${aiPartnerCitationFirstRules}
                 this.allData.documentRepoFolders = folders;
                 this.saveData();
             }
+            _getRepoFileSortOrders() {
+                return this.allData.repoFileSortOrders || {};
+            }
+            _saveRepoFileSortOrders(orders) {
+                this.allData.repoFileSortOrders = orders;
+                this.saveData();
+            }
+
+            async shiftDocumentRepoFileOrder(docId, direction) {
+                const docs = await this._getAllRepoDocuments();
+                const target = docs.find(d => d.id === docId);
+                if (!target) return;
+                const orders = this._getRepoFileSortOrders();
+                const folderDocs = docs
+                    .filter(d => (d.folderId || null) === (target.folderId || null))
+                    .sort((a, b) => {
+                        const ao = orders[a.id] ?? new Date(a.uploadedAt).getTime();
+                        const bo = orders[b.id] ?? new Date(b.uploadedAt).getTime();
+                        return ao !== bo ? ao - bo : a.id - b.id;
+                    });
+                const idx = folderDocs.findIndex(d => d.id === docId);
+                const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+                if (swapIdx < 0 || swapIdx >= folderDocs.length) return;
+                folderDocs.forEach((d, i) => { if (orders[d.id] == null) orders[d.id] = i * 1000; });
+                const tmp = orders[folderDocs[idx].id];
+                orders[folderDocs[idx].id] = orders[folderDocs[swapIdx].id];
+                orders[folderDocs[swapIdx].id] = tmp;
+                this._saveRepoFileSortOrders(orders);
+                await this._renderDocumentRepoList();
+            }
+
+            shiftDocumentRepoFolderOrder(folderId, direction) {
+                const folders = this._getDocumentRepoFolders();
+                const target = folders.find(f => f.id === folderId);
+                if (!target) return;
+                const siblings = folders.filter(f => f.parentId === target.parentId).sort((a, b) => a.order - b.order);
+                const idx = siblings.findIndex(f => f.id === folderId);
+                const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+                if (swapIdx < 0 || swapIdx >= siblings.length) return;
+                const f1 = folders.find(f => f.id === siblings[idx].id);
+                const f2 = folders.find(f => f.id === siblings[swapIdx].id);
+                if (!f1 || !f2) return;
+                [f1.order, f2.order] = [f2.order, f1.order];
+                this._saveDocumentRepoFolders(folders);
+                this._renderDocumentRepoList();
+            }
 
             addDocumentRepoFolder(name, parentId = null) {
                 const trimmed = (name || '').trim();
@@ -20330,10 +20395,23 @@ ${aiPartnerCitationFirstRules}
                 const icoDown = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
                 const icoEye  = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
                 const icoPlus = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+                const icoUp   = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>`;
+                const icoDn   = `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
 
-                const renderFileRow = (d) => {
+                const repoOrders = this._getRepoFileSortOrders();
+                const sortDocs = (arr) => [...arr].sort((a, b) => {
+                    const ao = repoOrders[a.id] ?? new Date(a.uploadedAt).getTime();
+                    const bo = repoOrders[b.id] ?? new Date(b.uploadedAt).getTime();
+                    return ao !== bo ? ao - bo : a.id - b.id;
+                });
+
+                const renderFileRow = (d, isFirst, isLast) => {
                     const usageCount = this.findChecklistItemsUsingDoc(d.id).length;
                     return `<div class="attach-file-row">
+                        <div style="display:flex;flex-direction:column;gap:1px;flex-shrink:0;margin-right:2px;">
+                            <button class="lib-file-btn" style="width:18px;height:18px;${isFirst ? 'opacity:0.2;pointer-events:none;' : ''}" title="위로" onclick="app.shiftDocumentRepoFileOrder(${d.id},'up')">${icoUp}</button>
+                            <button class="lib-file-btn" style="width:18px;height:18px;${isLast  ? 'opacity:0.2;pointer-events:none;' : ''}" title="아래로" onclick="app.shiftDocumentRepoFileOrder(${d.id},'down')">${icoDn}</button>
+                        </div>
                         ${icoFile}
                         <div style="flex:1;min-width:0;display:flex;align-items:center;gap:7px;">
                             <span class="attach-file-name" style="flex:1;" title="${this.escapeHtml(d.name)}">${this.escapeHtml(d.name)}</span>
@@ -20347,12 +20425,14 @@ ${aiPartnerCitationFirstRules}
                     </div>`;
                 };
 
-                const renderFolderSection = (folder, folderDocs, level, isUngrouped = false, extraHtml = '') => {
+                const renderFolderSection = (folder, folderDocs, level, isUngrouped = false, extraHtml = '', isFirst = false, isLast = false) => {
                     const bdId = isUngrouped ? 'doc-repo-bd-ungrouped' : `doc-repo-bd-${folder.id}`;
                     const nameId = isUngrouped ? 'doc-repo-folder-name-ungrouped' : `doc-repo-folder-name-${folder.id}`;
                     const isOpen = isUngrouped;
                     const hdrBtns = isUngrouped ? '' : `
-                        <div style="display:flex;gap:4px;flex-shrink:0;" onclick="event.stopPropagation()">
+                        <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;" onclick="event.stopPropagation()">
+                            <button class="lib-file-btn" style="width:18px;height:18px;${isFirst ? 'opacity:0.2;pointer-events:none;' : ''}" title="폴더 위로" onclick="app.shiftDocumentRepoFolderOrder(${folder.id},'up')">${icoUp}</button>
+                            <button class="lib-file-btn" style="width:18px;height:18px;${isLast  ? 'opacity:0.2;pointer-events:none;' : ''}" title="폴더 아래로" onclick="app.shiftDocumentRepoFolderOrder(${folder.id},'down')">${icoDn}</button>
                             ${level === 0 ? `<button class="lib-group-btn" style="color:#059669;border-color:rgba(5,150,105,0.25);" onclick="app.promptAddDocumentRepoSubFolder(${folder.id})">${icoPlus} 하위폴더</button>` : ''}
                             <label class="lib-group-btn" style="color:var(--accent);border-color:rgba(37,99,235,0.25);">${icoPlus} 파일<input type="file" multiple style="display:none;" onchange="app.addDocumentRepoFiles(event,${folder.id})"></label>
                             <button class="lib-group-btn" style="color:var(--text-muted);border-color:var(--border-subtle);padding:2px 6px;" onclick="app.startRenameDocumentRepoFolder(${folder.id})">✎</button>
@@ -20369,7 +20449,7 @@ ${aiPartnerCitationFirstRules}
                             ${hdrBtns}
                         </div>
                         <div class="attach-sec-bd${isOpen ? ' open' : ''}" id="${bdId}" style="padding:6px 10px 8px;">
-                            ${folderDocs.length > 0 ? folderDocs.map(renderFileRow).join('') : `<div style="color:var(--text-muted);font-size:0.78rem;padding:4px 2px;">파일 없음</div>`}
+                            ${folderDocs.length > 0 ? folderDocs.map((d, i, arr) => renderFileRow(d, i === 0, i === arr.length - 1)).join('') : `<div style="color:var(--text-muted);font-size:0.78rem;padding:4px 2px;">파일 없음</div>`}
                             ${extraHtml}
                         </div>
                     </div>`;
@@ -20377,14 +20457,15 @@ ${aiPartnerCitationFirstRules}
 
                 let html = '';
                 const topFolders = folders.filter(f => f.parentId == null).sort((a, b) => a.order - b.order);
-                for (const top of topFolders) {
+                for (let i = 0; i < topFolders.length; i++) {
+                    const top = topFolders[i];
                     const subFolders = folders.filter(f => f.parentId === top.id).sort((a, b) => a.order - b.order);
-                    const subHtml = subFolders.map(sf => renderFolderSection(sf, docs.filter(d => d.folderId === sf.id), 1)).join('');
-                    html += renderFolderSection(top, docs.filter(d => d.folderId === top.id), 0, false, subHtml);
+                    const subHtml = subFolders.map((sf, si) => renderFolderSection(sf, sortDocs(docs.filter(d => d.folderId === sf.id)), 1, false, '', si === 0, si === subFolders.length - 1)).join('');
+                    html += renderFolderSection(top, sortDocs(docs.filter(d => d.folderId === top.id)), 0, false, subHtml, i === 0, i === topFolders.length - 1);
                 }
                 const ungrouped = docs.filter(d => d.folderId == null || !folders.find(f => f.id === d.folderId));
                 if (ungrouped.length > 0) {
-                    html += renderFolderSection({ id: null, name: '미분류' }, ungrouped, 0, true);
+                    html += renderFolderSection({ id: null, name: '미분류' }, sortDocs(ungrouped), 0, true);
                 }
                 if (!html) {
                     html = '<div style="text-align:center;color:var(--text-muted);padding:36px 20px;font-size:0.85rem;line-height:1.7;">등록된 문서가 없습니다<br><small>파일을 여기에 드래그하거나 파일 업로드 버튼을 클릭하여 추가하세요</small></div>';
