@@ -6252,18 +6252,9 @@
                     await this.dbManager.init();
                     this.dbReady = true;
                     console.log('✅ IndexedDB 준비 완료');
-                    
+
                     // 데이터 로드 (IndexedDB 우선)
                     this.allData = await this.loadData();
-                    
-                    // 기존 Base64 데이터를 IndexedDB로 마이그레이션
-                    await this.migrateOldFilesToIndexedDB();
-                    
-                    // 기존 localStorage 데이터를 IndexedDB로 마이그레이션 (한 번만)
-                    await this.migrateLocalStorageToIndexedDB();
-
-                    // 기존 첨부파일을 문서저장소로 마이그레이션 (한 번만)
-                    await this.migrateAttachmentsToDocumentRepo();
 
                     // 브라우저 저장소 영구 보존 요청 (데이터 자동 삭제 방지)
                     await this.requestPersistentStorage();
@@ -6329,8 +6320,21 @@
                 // 데이터 로드 및 화면 그리기가 끝났으므로 시작 로딩 화면을 닫음
                 this.hideAppLoadingOverlay();
 
-                // 앱 시작 3초 후 백그라운드 임베딩 체크 (v2 미완료 파일 자동 처리)
-                setTimeout(() => this._startBackgroundEmbeddingCheck(), 3000);
+                // 마이그레이션을 UI 표시 후 백그라운드로 실행 (로딩 화면 블로킹 방지)
+                setTimeout(async () => {
+                    try {
+                        if (this.dbReady) {
+                            await this.migrateOldFilesToIndexedDB();
+                            await this.migrateLocalStorageToIndexedDB();
+                        }
+                        await this.migrateAttachmentsToDocumentRepo();
+                    } catch (e) {
+                        console.error('백그라운드 마이그레이션 오류:', e);
+                    }
+                }, 500);
+
+                // 앱 시작 4초 후 백그라운드 임베딩 체크 (v2 미완료 파일 자동 처리)
+                setTimeout(() => this._startBackgroundEmbeddingCheck(), 4000);
             }
 
             // 시작 로딩 화면 닫기 (서서히 사라진 뒤 DOM에서 제거)
