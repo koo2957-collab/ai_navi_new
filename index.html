@@ -5824,9 +5824,8 @@
                 return { name: 'Unknown', typicalLimit: '브라우저가 관리하는 실제 할당량' };
             }
             
-            // IndexedDB 데이터베이스 열기 (내부용) - dbManager의 기존 연결 재사용
+            // IndexedDB 데이터베이스 열기 (내부용)
             async openDatabase() {
-                if (this.dbManager && this.dbManager.db) return this.dbManager.db;
                 return new Promise((resolve, reject) => {
                     const request = indexedDB.open('WorkflowDB', 4);
                     request.onsuccess = () => resolve(request.result);
@@ -6348,6 +6347,11 @@
             
             // 키보드 단축키 초기화
             initKeyboardShortcuts() {
+                // 탭 이탈 등으로 dragend가 발화하지 않을 때 drag 상태 초기화
+                document.addEventListener('dragend', () => {
+                    if (this._manualDragSrcEl) this._manualDragEnd();
+                });
+
                 document.addEventListener('keydown', (e) => {
                     // 입력 필드에 포커스가 있으면 단축키 무시 (예: 텍스트 입력 중)
                     const activeElement = document.activeElement;
@@ -7221,7 +7225,7 @@
                 const inProgressList = [];
                 
                 this.allData.workflows
-                    .filter(w => w.type !== 'report' && !w.isDeleted)  // 보고서·삭제 제외
+                    .filter(w => w.type !== 'report' && !w.isDeleted)  // 보고서·휴지통 제외
                     .forEach(workflow => {
                         const progress = this.calculateProgress(workflow);
                         totalProgress += progress;
@@ -8118,22 +8122,15 @@
                     } else {
                         // 미리 정의된 기간
                         const now = new Date();
-                        // setMonth()는 월말(예: 10/31 → 9월 31일 없음 → 10/1)로 이월되는 버그 있음
-                        // 대신 Date 생성자로 월 경계를 안전하게 처리
-                        const safeSubtractMonths = (months) => {
-                            const targetMonth = now.getMonth() - months;
-                            const targetYear = now.getFullYear();
-                            const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-                            return new Date(targetYear, targetMonth, Math.min(now.getDate(), lastDay));
-                        };
                         if (this.currentDateFilter === '1month') {
-                            startDate = safeSubtractMonths(1);
+                            startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
                         } else if (this.currentDateFilter === '3months') {
-                            startDate = safeSubtractMonths(3);
+                            startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
                         } else if (this.currentDateFilter === '6months') {
-                            startDate = safeSubtractMonths(6);
+                            startDate = new Date(now.getFullYear(), now.getMonth() - 6, 1);
                         } else if (this.currentDateFilter === '1year') {
-                            startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                            startDate = new Date();
+                            startDate.setFullYear(now.getFullYear() - 1);
                         }
                         if (startDate) {
                             startDate.setHours(0, 0, 0, 0);
@@ -10293,8 +10290,6 @@
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', '');
                     setTimeout(() => div.classList.add('dragging'), 0);
-                    // 탭 이탈 등으로 dragend가 요소에 전달되지 않을 때 document에서 한 번만 정리
-                    document.addEventListener('dragend', () => this._manualDragEnd(), { once: true });
                 });
                 div.addEventListener('dragover', (e) => {
                     e.preventDefault();
@@ -11834,11 +11829,7 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
                     }
 
                     const projectKey = `project-${id}`;
-                    let details = this.checklistDetails[projectKey];
-                    // 메모리 캐시에 없으면 IndexedDB에서 직접 로드해서 파일 목록 확보
-                    if (!details && this.dbReady && this.dbManager) {
-                        try { details = await this.dbManager.getChecklistDetails(projectKey); } catch(e) {}
-                    }
+                    const details = this.checklistDetails[projectKey];
                     if (details) {
                         if (details.attachments) {
                             for (const att of details.attachments) {
@@ -11856,7 +11847,7 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
                         }
                         delete this.checklistDetails[projectKey];
                     }
-                    // 캐시 여부와 무관하게 IndexedDB 레코드는 항상 삭제 (고아 레코드 방지)
+                    // 메모리 캐시 유무와 무관하게 IndexedDB 레코드 정리
                     if (this.dbReady && this.dbManager) {
                         try { await this.dbManager.deleteChecklistDetails(projectKey); } catch(e) {}
                     }
@@ -14407,16 +14398,16 @@ ${incompleteInfo}
                 const workflow = this.allData.workflows.find(w => w.id === workflowId);
                 if (!workflow) return;
 
-                // 체크리스트 복사 (completed 상태 제외)
+                // 체크리스트 복사 (completed·skipped 상태 제외, 구조 속성 보존)
                 const checklistTemplate = workflow.checklist ?
                     workflow.checklist.map(item => ({
                         text: item.text,
                         completed: false,
-                        indent: item.indent || 0,
                         skipped: false,
-                        itemId: item.itemId || null,
-                        branchOptions: item.branchOptions ? JSON.parse(JSON.stringify(item.branchOptions)) : null,
-                        deadline: item.deadline || null
+                        ...(item.indent !== undefined && { indent: item.indent }),
+                        ...(item.itemId !== undefined && { itemId: item.itemId }),
+                        ...(item.branchOptions?.length && { branchOptions: [...item.branchOptions] }),
+                        ...(item.linkedDocs?.length && { linkedDocs: [...item.linkedDocs] }),
                     })) : [];
                 
                 // 체크리스트 세부정보 복사
@@ -17556,12 +17547,9 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                     } else if (provider === 'claude') {
                         // callAI에서 추적하므로 skipTracking=true로 전달하여 중복 추적 방지
                         result = await this.callClaude(prompt, model, key, true, options);
-                    } else {
-                        throw new Error('AI 제공자가 설정되지 않았습니다. 설정에서 API 키를 입력하세요.');
                     }
-
-                    if (!result) throw new Error('AI 응답이 없습니다. 다시 시도해 주세요.');
-
+                    
+                    if (!result) throw new Error(`지원하지 않는 AI 제공자입니다: ${provider}`);
                     // API 호출 성공 추적 (실제 사용된 모델 포함)
                     const estimatedTokens = Math.ceil((prompt.length + result.length) / 2);
                     const usedModel = provider === 'gemini' ? (this._lastUsedModel || model) : model;
@@ -18167,8 +18155,10 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
 
             async askAIHelp(question) {
                 if (!this.checkApiKey()) return;
-                if (this._aiSending) return;
-                this._aiSending = true;
+                if (this._aiHelpPending) return;  // 연타 방지
+                this._aiHelpPending = true;
+                const sendBtn = document.getElementById('aiSendBtn');
+                if (sendBtn) sendBtn.disabled = true;
                 if (!this.aiChatHistory) this.aiChatHistory = [];
 
                 // 자동/수동 모드: 질문 복잡도 분석 → 모델·thinking 결정
@@ -18522,7 +18512,9 @@ ${aiPartnerCitationFirstRules}
                     this.removeLastAIMessage();
                     this.addAIMessage('ai', `❌ 오류: ${error.message}`);
                 } finally {
-                    this._aiSending = false;
+                    this._aiHelpPending = false;
+                    const sendBtn = document.getElementById('aiSendBtn');
+                    if (sendBtn) sendBtn.disabled = false;
                 }
             }
 
@@ -28113,7 +28105,7 @@ ${originalContent}`;
             // Phase 1.5 데이터 백업 강화
             async downloadBackupFile() {
                 try {
-                    // 다운로드 전 즉시 저장 완료 대기 (최신 데이터 보장)
+                    // 다운로드 전 즉시 저장 (최신 데이터 보장)
                     await this.saveDataImmediate();
                     const backupData = {
                         version: '6.0_phase1',
