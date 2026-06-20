@@ -1351,7 +1351,8 @@
         .sidebar-stats-detail-btn { padding: 3px 9px; background: white; border: 1px solid var(--border-light); border-radius: 5px; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); cursor: pointer; font-family: inherit; transition: border-color 0.12s, color 0.12s; }
         .sidebar-stats-detail-btn:hover { border-color: var(--accent); color: var(--accent); }
         .sidebar-stats-compact { display: flex; align-items: stretch; padding: 10px 0; }
-        .ssc-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0; }
+        .ssc-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0; border-radius: 6px; transition: background 0.15s; }
+        .ssc-item:hover { background: var(--bg-light); }
         .ssc-num { font-size: 1.18rem; font-weight: 700; letter-spacing: -0.03em; color: #64748b; font-variant-numeric: tabular-nums; line-height: 1.1; }
         .ssc-num.ssc-inprog { color: #2563eb; }
         .ssc-num.ssc-done   { color: #059669; }
@@ -4251,17 +4252,17 @@
                     <button class="sidebar-stats-detail-btn" onclick="app.openStatsModal()">상세</button>
                 </div>
                 <div class="sidebar-stats-compact">
-                    <div class="ssc-item">
+                    <div class="ssc-item" onclick="app.filterWorkflowsByStatus('all')" title="전체 업무 보기" style="cursor:pointer;">
                         <span class="ssc-num" id="totalWorkflows">0</span>
                         <span class="ssc-label">전체</span>
                     </div>
                     <div class="ssc-divider"></div>
-                    <div class="ssc-item">
+                    <div class="ssc-item" onclick="app.filterWorkflowsByStatus('inProgress')" title="진행중 업무만 보기" style="cursor:pointer;">
                         <span class="ssc-num ssc-inprog" id="inProgressWorkflows">0</span>
                         <span class="ssc-label">진행</span>
                     </div>
                     <div class="ssc-divider"></div>
-                    <div class="ssc-item">
+                    <div class="ssc-item" onclick="app.filterWorkflowsByStatus('done')" title="완료 업무만 보기" style="cursor:pointer;">
                         <span class="ssc-num ssc-done" id="completedWorkflows">0</span>
                         <span class="ssc-label">완료</span>
                     </div>
@@ -4270,7 +4271,7 @@
                     <div class="sidebar-stats-pbar-wrap">
                         <div id="sidebarProgressBar" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width 0.4s;"></div>
                     </div>
-                    <div class="sidebar-stats-avg">평균 진행률 <span id="avgProgress">0</span>%</div>
+                    <div class="sidebar-stats-avg">진행중 평균 <span id="avgProgress">0</span>%</div>
                 </div>
             </div>
             
@@ -4296,13 +4297,13 @@
                 <div style="padding:16px;text-align:center;color:var(--text-muted);font-size:0.82rem;">임박한 업무가 없습니다</div>
             </div>
 
-            <!-- 최근 업무 -->
+            <!-- 진행 업무 -->
             <div class="sidebar-nav-sep">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                최근 업무
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                진행 업무
             </div>
-            <div id="recentWorksList" style="margin-bottom:4px;">
-                <div style="padding:16px;text-align:center;color:var(--text-muted);font-size:0.82rem;">최근 업무가 없습니다</div>
+            <div id="inProgressWorksList" style="margin-bottom:4px;">
+                <div style="padding:12px 4px;text-align:center;color:var(--text-muted);font-size:0.8rem;">진행중인 업무가 없습니다</div>
             </div>
             
         </div>
@@ -6213,7 +6214,7 @@
                 this.selectedProjectId = null;  // 선택된 업무 ID (사이드바 필터링용)
                 this.currentEditingWorkflowId = null;  // 편집 중인 워크플로우 ID
                 this.isReorderMode = false;  // 체크리스트 순서 변경 모드
-                this.recentWorksExpanded = false;  // Phase 4: 최근 업무 펼침 상태
+                this.inProgressWorksExpanded = false;  // 진행 업무 섹션 펼침 상태
                 this._completedSectionOpen = true; // 완료된 업무 섹션 기본 펼침
                 this.focusMode = false;       // 포커스 모드 ON/OFF
                 this.focusedWorkflowId = null; // 포커스 중인 업무 ID
@@ -7241,8 +7242,9 @@
                         }
                     });
                 
-                const avgProgress = total > 0 ? Math.round(totalProgress / total) : 0;
-                
+                const inProgressTotal = inProgressList.reduce((sum, item) => sum + item.progress, 0);
+                const avgProgress = inProgressList.length > 0 ? Math.round(inProgressTotal / inProgressList.length) : 0;
+
                 // 2025년 완료 건수 (보고서 제외)
                 const currentYear = new Date().getFullYear();
                 const yearlyCompleted = this.allData.workflows.filter(w => {
@@ -8399,8 +8401,8 @@
                 // 7. 페이지네이션 UI 추가
                 this.renderPagination(totalPages, totalItems, startIndex, endIndex);
                 
-                // Phase 4: 최근 업무와 마감일 임박 업데이트
-                this.displayRecentWorks();
+                // 사이드바 진행 업무 · 마감 임박 업데이트
+                this.displayInProgressWorks();
                 this.displayUrgentWorks();
                 
             }
@@ -8892,117 +8894,114 @@
                 this.displayWorkflows();
             }
 
-            // Phase 4: 최근 업무 표시 (최신 3개 + 더보기 시 최대 10개)
-            displayRecentWorks() {
-                const container = document.getElementById('recentWorksList');
+            // 진행 업무 표시 (0 < 진행률 < 100, 마감일 가까운 순, 기본 5개)
+            displayInProgressWorks() {
+                const container = document.getElementById('inProgressWorksList');
                 if (!container) return;
-                
-                if (this.allData.workflows.length === 0) {
+
+                // 진행중 업무만 필터 (보고서·삭제·아카이브 제외, 0% 와 100% 제외)
+                const inProgressWorks = this.allData.workflows
+                    .filter(w => w.type !== 'report' && !w.isDeleted && !w.isArchived)
+                    .map(w => ({ work: w, progress: this.calculateProgress(w) }))
+                    .filter(({ progress }) => progress > 0 && progress < 100);
+
+                if (inProgressWorks.length === 0) {
                     container.innerHTML = `
-                        <div style="padding: 20px; text-align: center; color: var(--text-gray); font-size: 0.9rem;">
-                            최근 업무가 없습니다
+                        <div style="padding:12px 4px;text-align:center;color:var(--text-muted);font-size:0.8rem;">
+                            진행중인 업무가 없습니다
                         </div>
                     `;
                     return;
                 }
-                
-                // 최신순으로 정렬 (보고서 제외)
-                const allRecentWorks = [...this.allData.workflows]
-                    .filter(w => w.type !== 'report')  // 보고서 제외
-                    .sort((a, b) => {
-                        // 최근 작업/저장 순서 기준으로 정렬
-                        // 1순위: updatedAt (마지막으로 저장/수정한 시각)
-                        // 2순위: createdAt
-                        // 3순위: date (기존 작성일)
-                        const dateA = a.updatedAt
-                            ? new Date(a.updatedAt)
-                            : (a.createdAt ? new Date(a.createdAt) : new Date(a.date));
-                        const dateB = b.updatedAt
-                            ? new Date(b.updatedAt)
-                            : (b.createdAt ? new Date(b.createdAt) : new Date(b.date));
-                        return dateB - dateA;
-                    });
 
-                // 1순위: 현재 하고 있는 업무(선택된 업무)를 맨 앞에 배치
-                let orderedRecentWorks = [...allRecentWorks];
-                if (this.selectedProjectId) {
-                    const lastWorked = allRecentWorks.find(w => w.id === this.selectedProjectId)
-                        || this.allData.workflows.find(w => w.id === this.selectedProjectId && w.type !== 'report');
-                    if (lastWorked) {
-                        orderedRecentWorks = [
-                            lastWorked,
-                            ...allRecentWorks.filter(w => w.id !== lastWorked.id)
-                        ];
-                    }
-                }
-                
-                // 표시할 개수 결정 (기본 3개, 펼침 상태면 최대 10개)
-                const showAll = this.recentWorksExpanded || false;
-                const maxDisplayCount = 10;
-                const worksToShow = showAll 
-                    ? orderedRecentWorks.slice(0, Math.min(maxDisplayCount, orderedRecentWorks.length))
-                    : orderedRecentWorks.slice(0, 3);
-                
-                const worksHTML = worksToShow.map(work => {
-                    const progress = this.calculateProgress(work);
+                // 마감일 가까운 순 정렬 (기한 초과 먼저, 마감일 없으면 맨 뒤)
+                inProgressWorks.sort((a, b) => {
+                    const dA = this.calculateDaysLeft(a.work.deadline);
+                    const dB = this.calculateDaysLeft(b.work.deadline);
+                    return dA - dB;
+                });
+
+                // 표시 개수 (기본 5개, 펼침 시 최대 15개)
+                const showAll = this.inProgressWorksExpanded || false;
+                const maxCount = 15;
+                const worksToShow = showAll
+                    ? inProgressWorks.slice(0, maxCount)
+                    : inProgressWorks.slice(0, 5);
+
+                const worksHTML = worksToShow.map(({ work, progress }) => {
                     const daysLeft = this.calculateDaysLeft(work.deadline);
-                    
-                    let deadlineColor = '#10b981'; // 초록
-                    if (daysLeft <= 2) deadlineColor = '#ef4444'; // 빨강
-                    else if (daysLeft <= 7) deadlineColor = '#f59e0b'; // 노랑
-                    
+
+                    let dayText, dayColor, borderColor;
+                    if (daysLeft === 999) {
+                        dayText = '기한 없음';
+                        dayColor = 'var(--text-muted)';
+                        borderColor = 'var(--accent)';
+                    } else if (daysLeft < 0) {
+                        dayText = `${Math.abs(daysLeft)}일 초과`;
+                        dayColor = '#ef4444';
+                        borderColor = '#ef4444';
+                    } else if (daysLeft === 0) {
+                        dayText = 'D-Day';
+                        dayColor = '#ef4444';
+                        borderColor = '#ef4444';
+                    } else if (daysLeft <= 3) {
+                        dayText = `D-${daysLeft}`;
+                        dayColor = '#f97316';
+                        borderColor = '#f97316';
+                    } else if (daysLeft <= 7) {
+                        dayText = `D-${daysLeft}`;
+                        dayColor = '#f59e0b';
+                        borderColor = '#f59e0b';
+                    } else {
+                        dayText = `D-${daysLeft}`;
+                        dayColor = '#10b981';
+                        borderColor = 'var(--accent)';
+                    }
+
                     return `
-                        <div style="background: white; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 4px solid var(--accent); cursor: pointer; transition: all 0.2s;" 
+                        <div style="background:var(--white);border-radius:7px;border:1px solid var(--border-light);border-left:3px solid ${borderColor};padding:7px 10px;margin-bottom:5px;cursor:pointer;transition:background 0.12s;"
                              onclick="app.focusWorkflow(${work.id});"
-                             onmouseover="this.style.transform='translateX(5px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.15)';"
-                             onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='none';">
-                            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                ${this.escapeHtml(work.title)}
+                             onmouseover="this.style.background='var(--bg-light)'"
+                             onmouseout="this.style.background='var(--white)'">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                                <div style="font-size:0.81rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">${this.escapeHtml(work.title)}</div>
+                                <span style="font-size:0.72rem;font-weight:700;color:${dayColor};white-space:nowrap;flex-shrink:0;">${dayText}</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem;">
-                                <span style="color: var(--text-gray);">진행률 ${progress}%</span>
-                                <span style="color: ${deadlineColor}; font-weight: 600;">D-${daysLeft}</span>
-                            </div>
-                            <div style="background: #e5e7eb; height: 4px; border-radius: 2px; margin-top: 6px; overflow: hidden;">
-                                <div style="height: 100%; background: var(--accent); width: ${progress}%; transition: width 0.3s;"></div>
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <div style="flex:1;background:#e5e7eb;height:4px;border-radius:2px;overflow:hidden;">
+                                    <div style="height:100%;background:${borderColor};width:${progress}%;transition:width 0.3s;"></div>
+                                </div>
+                                <span style="font-size:0.7rem;color:var(--text-muted);flex-shrink:0;">${progress}%</span>
                             </div>
                         </div>
                     `;
                 }).join('');
-                
-                // 더보기 버튼 (업무가 3개 초과일 때만)
+
                 let moreButton = '';
-                const displayCount = showAll ? Math.min(maxDisplayCount, orderedRecentWorks.length) : 3;
-                
-                if (orderedRecentWorks.length > 3) {
-                    if (showAll) {
-                        moreButton = `
-                            <button onclick="app.toggleRecentWorks()" 
-                                    style="width: 100%; padding: 10px; background: var(--bg-light); border: 2px dashed var(--border-light); border-radius: 8px; color: var(--text-gray); font-size: 0.85rem; cursor: pointer; transition: all 0.2s;"
-                                    onmouseover="this.style.background='#e0f2fe'; this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
-                                    onmouseout="this.style.background='var(--bg-light)'; this.style.borderColor='var(--border-light)'; this.style.color='var(--text-gray)';">
-                                ▲ 접기 (${orderedRecentWorks.length}개 중 ${displayCount}개 표시)
-                            </button>
-                        `;
-                    } else {
-                        moreButton = `
-                            <button onclick="app.toggleRecentWorks()" 
-                                    style="width: 100%; padding: 10px; background: var(--bg-light); border: 2px dashed var(--border-light); border-radius: 8px; color: var(--text-gray); font-size: 0.85rem; cursor: pointer; transition: all 0.2s;"
-                                    onmouseover="this.style.background='#e0f2fe'; this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
-                                    onmouseout="this.style.background='var(--bg-light)'; this.style.borderColor='var(--border-light)'; this.style.color='var(--text-gray)';">
-                                ▼ 더보기 (${orderedRecentWorks.length}개 중 최대 ${maxDisplayCount}개까지 표시)
-                            </button>
-                        `;
-                    }
+                if (inProgressWorks.length > 5) {
+                    const displayCount = showAll ? Math.min(maxCount, inProgressWorks.length) : 5;
+                    moreButton = showAll
+                        ? `<button onclick="app.toggleInProgressWorks()"
+                                   style="width:100%;padding:8px;background:var(--bg-light);border:1px dashed var(--border-light);border-radius:7px;color:var(--text-muted);font-size:0.78rem;cursor:pointer;transition:all 0.15s;"
+                                   onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';"
+                                   onmouseout="this.style.borderColor='var(--border-light)';this.style.color='var(--text-muted)';">
+                               ▲ 접기 (${inProgressWorks.length}개 중 ${displayCount}개 표시)
+                           </button>`
+                        : `<button onclick="app.toggleInProgressWorks()"
+                                   style="width:100%;padding:8px;background:var(--bg-light);border:1px dashed var(--border-light);border-radius:7px;color:var(--text-muted);font-size:0.78rem;cursor:pointer;transition:all 0.15s;"
+                                   onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)';"
+                                   onmouseout="this.style.borderColor='var(--border-light)';this.style.color='var(--text-muted)';">
+                               ▼ 더보기 (${inProgressWorks.length - 5}개 더)
+                           </button>`;
                 }
-                
+
                 container.innerHTML = worksHTML + moreButton;
             }
-            
-            // 최근 업무 펼치기/접기
-            toggleRecentWorks() {
-                this.recentWorksExpanded = !this.recentWorksExpanded;
-                this.displayRecentWorks();
+
+            // 진행 업무 펼치기/접기
+            toggleInProgressWorks() {
+                this.inProgressWorksExpanded = !this.inProgressWorksExpanded;
+                this.displayInProgressWorks();
             }
             
             // 업무로 스크롤 + 하이라이트
@@ -9023,82 +9022,78 @@
                 }
             }
 
-            // Phase 4: 마감일 임박 업무 표시 (D-3 이하만)
+            // 마감일 임박 업무 표시 (기한 초과 포함, D-7 이내)
             displayUrgentWorks() {
                 const container = document.getElementById('urgentWorksList');
                 if (!container) return;
-                
-                // 업무별로 마감일 임박 여부와 정보를 수집
+
+                // 업무별 마감일 긴급 여부 수집 (기한 초과 포함, D-7 이내)
                 const urgentWorks = this.allData.workflows.map(work => {
+                    if (work.isDeleted) return null;
                     const progress = this.calculateProgress(work);
-                    if (progress === 100) return null; // 완료된 건 제외
-                    
+                    if (progress === 100) return null; // 완료 업무 제외
+
                     const workDaysLeft = this.calculateDaysLeft(work.deadline);
-                    const isWorkDeadlineUrgent = workDaysLeft <= 3 && workDaysLeft >= 0;
-                    
+                    // 기한 초과(음수) 또는 D-7 이내만 표시 (마감일 없으면 999)
+                    const isWorkDeadlineUrgent = workDaysLeft !== 999 && workDaysLeft <= 7;
+
                     // 체크리스트 항목 중 미완료 항목의 마감일 확인
                     let urgentChecklistItem = null;
                     let minChecklistDaysLeft = 999;
-                    
+
                     if (work.checklist && Array.isArray(work.checklist)) {
                         work.checklist.forEach((item, index) => {
-                            // 미완료 항목만 확인
                             if (!this.normalizeCompleted(item) && !item.skipped && item.deadline) {
                                 const itemDaysLeft = this.calculateDaysLeft(item.deadline);
-                                if (itemDaysLeft <= 3 && itemDaysLeft >= 0 && itemDaysLeft < minChecklistDaysLeft) {
+                                if (itemDaysLeft !== 999 && itemDaysLeft <= 7 && itemDaysLeft < minChecklistDaysLeft) {
                                     minChecklistDaysLeft = itemDaysLeft;
                                     urgentChecklistItem = { index, daysLeft: itemDaysLeft, text: item.text || `항목 ${index + 1}` };
                                 }
                             }
                         });
                     }
-                    
-                    // 업무 전체 마감일이 임박하면 우선 표시
+
                     if (isWorkDeadlineUrgent) {
-                        return {
-                            work,
-                            progress,
-                            daysLeft: workDaysLeft,
-                            urgencyType: 'work',
-                            urgentChecklistItem: null // 업무 전체 마감일이 임박하면 항목 마감일은 별도 표시 안 함
-                        };
+                        return { work, progress, daysLeft: workDaysLeft, urgencyType: 'work', urgentChecklistItem: null };
+                    } else if (urgentChecklistItem) {
+                        return { work, progress, daysLeft: urgentChecklistItem.daysLeft, urgencyType: 'checklist', urgentChecklistItem };
                     }
-                    // 업무 전체 마감일이 임박하지 않지만 체크리스트 항목 마감일이 임박하면 표시
-                    else if (urgentChecklistItem) {
-                        return {
-                            work,
-                            progress,
-                            daysLeft: urgentChecklistItem.daysLeft,
-                            urgencyType: 'checklist',
-                            urgentChecklistItem: urgentChecklistItem
-                        };
-                    }
-                    
                     return null;
                 }).filter(item => item !== null);
-                
-                // 정렬: 업무 전체 마감일 우선, 그 다음 체크리스트 항목 마감일, 각 그룹 내에서는 마감일 가까운 순
+
+                // 정렬: 업무 전체 마감일 우선 → 체크리스트 항목 → 각 그룹 내 마감일 가까운 순 (기한 초과가 먼저)
                 urgentWorks.sort((a, b) => {
-                    // 업무 전체 마감일이 임박한 것을 우선
                     if (a.urgencyType === 'work' && b.urgencyType === 'checklist') return -1;
                     if (a.urgencyType === 'checklist' && b.urgencyType === 'work') return 1;
-                    // 같은 타입이면 마감일이 가까운 순
                     return a.daysLeft - b.daysLeft;
                 });
-                
+
                 if (urgentWorks.length === 0) {
                     container.innerHTML = `
                         <div style="padding:12px 4px;text-align:center;color:var(--text-muted);font-size:0.8rem;">
-                            임박한 업무가 없습니다
+                            마감 임박 업무가 없습니다
                         </div>
                     `;
                     return;
                 }
 
                 container.innerHTML = urgentWorks.map(({ work, progress, daysLeft, urgencyType, urgentChecklistItem }) => {
-                    const borderColor = daysLeft === 0 ? '#ef4444' : (urgencyType === 'work' && daysLeft === 1) ? '#f97316' : '#f59e0b';
-                    const dayText = daysLeft === 0 ? 'D-Day' : `D-${daysLeft}`;
+                    let borderColor, dayText;
+                    if (daysLeft < 0) {
+                        borderColor = '#ef4444';
+                        dayText = `${Math.abs(daysLeft)}일 초과`;
+                    } else if (daysLeft === 0) {
+                        borderColor = '#ef4444';
+                        dayText = 'D-Day';
+                    } else if (daysLeft <= 3) {
+                        borderColor = '#f97316';
+                        dayText = `D-${daysLeft}`;
+                    } else {
+                        borderColor = '#f59e0b';
+                        dayText = `D-${daysLeft}`;
+                    }
                     const typeLabel = urgencyType === 'work' ? '업무' : '항목';
+                    const overdueLabel = daysLeft < 0 ? '<span style="font-size:0.68rem;background:#fef2f2;color:#ef4444;border-radius:3px;padding:0 4px;margin-left:3px;font-weight:700;">기한초과</span>' : '';
 
                     const checklistInfo = urgentChecklistItem
                         ? `<div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(urgentChecklistItem.text)}</div>`
@@ -9110,7 +9105,7 @@
                              onmouseover="this.style.background='var(--bg-light)'"
                              onmouseout="this.style.background='var(--white)'">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:2px;">
-                                <div style="font-size:0.81rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">${this.escapeHtml(work.title)}</div>
+                                <div style="font-size:0.81rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">${this.escapeHtml(work.title)}${overdueLabel}</div>
                                 <span style="font-size:0.72rem;font-weight:700;color:${borderColor};white-space:nowrap;flex-shrink:0;">${dayText}</span>
                             </div>
                             <div style="font-size:0.7rem;color:var(--text-muted);">${typeLabel} 마감 · 진행 ${progress}%</div>
