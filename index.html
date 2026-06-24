@@ -21078,7 +21078,10 @@ ${aiPartnerCitationFirstRules}
             }
 
             async migrateAttachmentsToDocumentRepo() {
-                if (this.allData.documentRepoMigratedAt) return;
+                // 완료 플래그와 무관하게 매번 검사 — formats(구식)가 남아있는 항목만 비용이 들고,
+                // 정상 상태(formats 비어있음)에서는 아래 hasAnyFormats 체크에서 바로 종료된다.
+                // 백업 복원 등으로 formats가 다시 생기거나, 과거 마이그레이션이 일부 항목에서
+                // 누락된 경우(예: linkedDocs와 formats에 같은 파일이 중복으로 남는 경우)를 자동 복구한다.
                 const hasAnyFormats = (this.allData.workflows || []).some(wf => (wf.checklist || []).some(it => it.formats?.length));
                 if (!hasAnyFormats) {
                     this.allData.documentRepoMigratedAt = new Date().toISOString();
@@ -21138,11 +21141,13 @@ ${aiPartnerCitationFirstRules}
                             migratedAny = true;
                         }
 
-                        if (migratedAny) {
-                            item.linkedDocs = linkedDocs;
-                            item.formats = []; // 새 구조(linkedDocs)로 전환 — 원본 blob은 formFiles에 그대로 보존됨
-                            migratedItems++;
-                        }
+                        // formats는 처리 후 항상 비운다 — blob을 찾지 못한 항목은 이미 깨진 참조이므로
+                        // linkedDocs로도 옮길 수 없지만, 계속 남겨두면 다음 실행마다 똑같이 재시도되며
+                        // 매번 백업 다운로드/토스트가 반복된다. 또한 이미 linkedDocs에 같은 파일이
+                        // 있던 경우(중복 표시 버그)는 여기서 formats 쪽 잔여 항목이 제거되어 정리된다.
+                        item.linkedDocs = linkedDocs;
+                        item.formats = []; // 새 구조(linkedDocs)로 전환 — 원본 blob은 formFiles에 그대로 보존됨
+                        if (migratedAny) migratedItems++;
                     }
                 }
 
