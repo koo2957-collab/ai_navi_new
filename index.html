@@ -6265,7 +6265,10 @@
                     // 폴백: localStorage에서 로드
                     this.allData = await this.loadData();
                 }
-                
+
+                // 서식·문서함 메타 캐시 미리 로드 (체크리스트 서식 탭은 동기 렌더링이라 사전 로드 필요)
+                await this._loadRepoDocMetaCache();
+
                 // 휴지통: 30일 지난 항목 자동 정리 후 배지 표시
                 await this.cleanupTrash();
                 this.updateTrashBadge();
@@ -21822,6 +21825,95 @@ ${aiPartnerCitationFirstRules}
                 });
             }
 
+            // 체크리스트 항목별 서식 파일 수집 (workflow.checklist[index].formats + checklistDetails[key].forms)
+            // executeExportProjectPackage / exportYearlyBackup 공용 헬퍼
+            async _collectChecklistFormatFiles(project, packageData) {
+                if (!project.checklist || !Array.isArray(project.checklist)) return;
+                for (let checklistIndex = 0; checklistIndex < project.checklist.length; checklistIndex++) {
+                    const checklistItem = project.checklist[checklistIndex];
+                    if (checklistItem.formats && Array.isArray(checklistItem.formats)) {
+                        for (const format of checklistItem.formats) {
+                            // 이미 수집한 파일인지 확인 (중복 방지)
+                            const fileKey = format.id ?
+                                `project-${project.id}-form-${format.id}` :
+                                `project-${project.id}-form-${format.name}`;
+
+                            if (!packageData.files[fileKey] && format.inIndexedDB && format.id) {
+                                try {
+                                    const fileData = await this.dbManager.getFile('formFiles', format.id);
+                                    if (fileData && fileData.blob) {
+                                        const base64 = await this.dbManager.blobToBase64(fileData.blob);
+                                        packageData.files[fileKey] = {
+                                            name: format.name,
+                                            type: format.type,
+                                            data: base64,
+                                            checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
+                                        };
+                                    }
+                                } catch (error) {
+                                    console.error('서식파일 수집 실패:', error);
+                                }
+                            } else if (!packageData.files[fileKey] && format.data) {
+                                // Base64 데이터가 직접 있는 경우
+                                packageData.files[fileKey] = {
+                                    name: format.name,
+                                    type: format.type,
+                                    data: format.data,
+                                    checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
+                                };
+                            }
+
+                            // 이미 존재하는 파일이지만 checklistIndex 정보가 없으면 업데이트
+                            if (packageData.files[fileKey] && packageData.files[fileKey].checklistIndex === null &&
+                                (format.id && fileKey.includes(format.id) || fileKey.includes(format.name))) {
+                                packageData.files[fileKey].checklistIndex = checklistIndex;
+                            }
+                        }
+                    }
+
+                    // checklistDetails[${project.id}-${index}].forms에서도 수집
+                    const detailKey = `${project.id}-${checklistIndex}`;
+                    const itemDetails = this.checklistDetails[detailKey];
+                    if (itemDetails && itemDetails.forms && Array.isArray(itemDetails.forms)) {
+                        for (const form of itemDetails.forms) {
+                            const fileKey = form.id ?
+                                `project-${project.id}-form-${form.id}` :
+                                `project-${project.id}-form-${form.name}`;
+
+                            if (!packageData.files[fileKey] && form.inIndexedDB && form.id) {
+                                try {
+                                    const fileData = await this.dbManager.getFile('formFiles', form.id);
+                                    if (fileData && fileData.blob) {
+                                        const base64 = await this.dbManager.blobToBase64(fileData.blob);
+                                        packageData.files[fileKey] = {
+                                            name: form.name,
+                                            type: form.type,
+                                            data: base64,
+                                            checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
+                                        };
+                                    }
+                                } catch (error) {
+                                    console.error('서식파일 수집 실패:', error);
+                                }
+                            } else if (!packageData.files[fileKey] && form.data) {
+                                packageData.files[fileKey] = {
+                                    name: form.name,
+                                    type: form.type,
+                                    data: form.data,
+                                    checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
+                                };
+                            }
+
+                            // 이미 존재하는 파일이지만 checklistIndex 정보가 없으면 업데이트
+                            if (packageData.files[fileKey] && packageData.files[fileKey].checklistIndex === null &&
+                                (form.id && fileKey.includes(form.id) || fileKey.includes(form.name))) {
+                                packageData.files[fileKey].checklistIndex = checklistIndex;
+                            }
+                        }
+                    }
+                }
+            }
+
             async executeExportProjectPackage(modal) {
                 const checkboxes = modal.querySelectorAll('input[type="checkbox"]:checked');
                 if (checkboxes.length === 0) {
@@ -21939,91 +22031,7 @@ ${aiPartnerCitationFirstRules}
                         }
                         
                         // 체크리스트 항목별 서식 파일 수집 (workflow.checklist[index].formats)
-                        if (project.checklist && Array.isArray(project.checklist)) {
-                            for (let checklistIndex = 0; checklistIndex < project.checklist.length; checklistIndex++) {
-                                const checklistItem = project.checklist[checklistIndex];
-                                if (checklistItem.formats && Array.isArray(checklistItem.formats)) {
-                                    for (const format of checklistItem.formats) {
-                                        // 이미 수집한 파일인지 확인 (중복 방지)
-                                        const fileKey = format.id ? 
-                                            `project-${projectId}-form-${format.id}` : 
-                                            `project-${projectId}-form-${format.name}`;
-                                        
-                                        if (!packageData.files[fileKey] && format.inIndexedDB && format.id) {
-                                            try {
-                                                const fileData = await this.dbManager.getFile('formFiles', format.id);
-                                                if (fileData && fileData.blob) {
-                                                    const base64 = await this.dbManager.blobToBase64(fileData.blob);
-                                                    packageData.files[fileKey] = {
-                                                        name: format.name,
-                                                        type: format.type,
-                                                        data: base64,
-                                                        checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
-                                                    };
-                                                }
-                                            } catch (error) {
-                                                console.error('서식파일 수집 실패:', error);
-                                            }
-                                        } else if (!packageData.files[fileKey] && format.data) {
-                                            // Base64 데이터가 직접 있는 경우
-                                            packageData.files[fileKey] = {
-                                                name: format.name,
-                                                type: format.type,
-                                                data: format.data,
-                                                checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
-                                            };
-                                        }
-                                        
-                                        // 이미 존재하는 파일이지만 checklistIndex 정보가 없으면 업데이트
-                                        if (packageData.files[fileKey] && packageData.files[fileKey].checklistIndex === null && 
-                                            (format.id && fileKey.includes(format.id) || fileKey.includes(format.name))) {
-                                            packageData.files[fileKey].checklistIndex = checklistIndex;
-                                        }
-                                    }
-                                }
-                                
-                                // checklistDetails[${projectId}-${index}].forms에서도 수집
-                                const detailKey = `${projectId}-${checklistIndex}`;
-                                const itemDetails = this.checklistDetails[detailKey];
-                                if (itemDetails && itemDetails.forms && Array.isArray(itemDetails.forms)) {
-                                    for (const form of itemDetails.forms) {
-                                        const fileKey = form.id ? 
-                                            `project-${projectId}-form-${form.id}` : 
-                                            `project-${projectId}-form-${form.name}`;
-                                        
-                                        if (!packageData.files[fileKey] && form.inIndexedDB && form.id) {
-                                            try {
-                                                const fileData = await this.dbManager.getFile('formFiles', form.id);
-                                                if (fileData && fileData.blob) {
-                                                    const base64 = await this.dbManager.blobToBase64(fileData.blob);
-                                                    packageData.files[fileKey] = {
-                                                        name: form.name,
-                                                        type: form.type,
-                                                        data: base64,
-                                                        checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
-                                                    };
-                                                }
-                                            } catch (error) {
-                                                console.error('서식파일 수집 실패:', error);
-                                            }
-                                        } else if (!packageData.files[fileKey] && form.data) {
-                                            packageData.files[fileKey] = {
-                                                name: form.name,
-                                                type: form.type,
-                                                data: form.data,
-                                                checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
-                                            };
-                                        }
-                                        
-                                        // 이미 존재하는 파일이지만 checklistIndex 정보가 없으면 업데이트
-                                        if (packageData.files[fileKey] && packageData.files[fileKey].checklistIndex === null && 
-                                            (form.id && fileKey.includes(form.id) || fileKey.includes(form.name))) {
-                                            packageData.files[fileKey].checklistIndex = checklistIndex;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        await this._collectChecklistFormatFiles(project, packageData);
 
                         // PDF 문서 수집
                         if (this.dbReady) {
@@ -27093,92 +27101,8 @@ ${originalContent}`;
                     }
                     
                     // 체크리스트 항목별 서식 파일 수집 (workflow.checklist[index].formats)
-                    if (project.checklist && Array.isArray(project.checklist)) {
-                        for (let checklistIndex = 0; checklistIndex < project.checklist.length; checklistIndex++) {
-                            const checklistItem = project.checklist[checklistIndex];
-                            if (checklistItem.formats && Array.isArray(checklistItem.formats)) {
-                                for (const format of checklistItem.formats) {
-                                    // 이미 수집한 파일인지 확인 (중복 방지)
-                                    const fileKey = format.id ? 
-                                        `project-${project.id}-form-${format.id}` : 
-                                        `project-${project.id}-form-${format.name}`;
-                                    
-                                    if (!packageData.files[fileKey] && format.inIndexedDB && format.id) {
-                                        try {
-                                            const fileData = await this.dbManager.getFile('formFiles', format.id);
-                                            if (fileData && fileData.blob) {
-                                                const base64 = await this.dbManager.blobToBase64(fileData.blob);
-                                                packageData.files[fileKey] = {
-                                                    name: format.name,
-                                                    type: format.type,
-                                                    data: base64,
-                                                    checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
-                                                };
-                                            }
-                                        } catch (error) {
-                                            console.error('서식파일 수집 실패:', error);
-                                        }
-                                    } else if (!packageData.files[fileKey] && format.data) {
-                                        // Base64 데이터가 직접 있는 경우
-                                        packageData.files[fileKey] = {
-                                            name: format.name,
-                                            type: format.type,
-                                            data: format.data,
-                                            checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
-                                        };
-                                    }
-                                    
-                                    // 이미 존재하는 파일이지만 checklistIndex 정보가 없으면 업데이트
-                                    if (packageData.files[fileKey] && packageData.files[fileKey].checklistIndex === null && 
-                                        (format.id && fileKey.includes(format.id) || fileKey.includes(format.name))) {
-                                        packageData.files[fileKey].checklistIndex = checklistIndex;
-                                    }
-                                }
-                            }
-                            
-                            // checklistDetails[${project.id}-${index}].forms에서도 수집
-                            const detailKey = `${project.id}-${checklistIndex}`;
-                            const itemDetails = this.checklistDetails[detailKey];
-                            if (itemDetails && itemDetails.forms && Array.isArray(itemDetails.forms)) {
-                                for (const form of itemDetails.forms) {
-                                    const fileKey = form.id ? 
-                                        `project-${project.id}-form-${form.id}` : 
-                                        `project-${project.id}-form-${form.name}`;
-                                    
-                                    if (!packageData.files[fileKey] && form.inIndexedDB && form.id) {
-                                        try {
-                                            const fileData = await this.dbManager.getFile('formFiles', form.id);
-                                            if (fileData && fileData.blob) {
-                                                const base64 = await this.dbManager.blobToBase64(fileData.blob);
-                                                packageData.files[fileKey] = {
-                                                    name: form.name,
-                                                    type: form.type,
-                                                    data: base64,
-                                                    checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
-                                                };
-                                            }
-                                        } catch (error) {
-                                            console.error('서식파일 수집 실패:', error);
-                                        }
-                                    } else if (!packageData.files[fileKey] && form.data) {
-                                        packageData.files[fileKey] = {
-                                            name: form.name,
-                                            type: form.type,
-                                            data: form.data,
-                                            checklistIndex: checklistIndex  // 체크리스트 항목 인덱스 정보 포함
-                                        };
-                                    }
-                                    
-                                    // 이미 존재하는 파일이지만 checklistIndex 정보가 없으면 업데이트
-                                    if (packageData.files[fileKey] && packageData.files[fileKey].checklistIndex === null && 
-                                        (form.id && fileKey.includes(form.id) || fileKey.includes(form.name))) {
-                                        packageData.files[fileKey].checklistIndex = checklistIndex;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
+                    await this._collectChecklistFormatFiles(project, packageData);
+
                     // PDF 문서 수집
                     if (this.dbReady) {
                         try {
