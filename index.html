@@ -23912,7 +23912,7 @@ ${aiPartnerCitationFirstRules}
                 const dlSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
                 const unlinkSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
                 const linkedDocs = item.linkedDocs || [];
-                const linkedDocsHtml = linkedDocs.map(docId => {
+                const linkedDocsHtml = linkedDocs.map((docId, di) => {
                     const meta = this._getRepoDocMeta(docId);
                     if (!meta) return '';
                     return `
@@ -23923,6 +23923,8 @@ ${aiPartnerCitationFirstRules}
                                 <div class="cim-file-size">${meta.size ? this._formatFileSize(meta.size) + ' · ' : ''}서식·문서함</div>
                             </div>
                             <div class="cim-file-actions">
+                                ${!readOnly ? `<button class="cim-file-btn" onclick="app.moveChecklistLinkedDoc(${workflowId},${index},${di},'up')" title="위로" ${di === 0 ? 'disabled style="opacity:0.25;cursor:default;"' : ''}>${upSvg}</button>` : ''}
+                                ${!readOnly ? `<button class="cim-file-btn" onclick="app.moveChecklistLinkedDoc(${workflowId},${index},${di},'down')" title="아래로" ${di === linkedDocs.length-1 ? 'disabled style="opacity:0.25;cursor:default;"' : ''}>${downSvg}</button>` : ''}
                                 ${this.canPreview(meta.type || meta.name) ? `<button class="cim-file-btn" onclick="app.previewRepoDocument(${docId})" title="미리보기">${eyeSvg}</button>` : ''}
                                 <button class="cim-file-btn" onclick="app.downloadRepoDocument(${docId})" title="다운로드">${dlSvg}</button>
                                 ${!readOnly ? `<button class="cim-file-btn danger" onclick="app.unlinkDocFromChecklistItem(${workflowId},${index},${docId})" title="연결 해제">${unlinkSvg}</button>` : ''}
@@ -23956,6 +23958,19 @@ ${aiPartnerCitationFirstRules}
                 const newIndex = fileIndex + (direction === 'up' ? -1 : 1);
                 if (newIndex < 0 || newIndex >= item.formats.length) return;
                 [item.formats[fileIndex], item.formats[newIndex]] = [item.formats[newIndex], item.formats[fileIndex]];
+                this.saveData();
+                this.refreshChecklistFormatsList(workflowId, checklistIndex);
+            }
+
+            // 서식·문서함에서 연결한 문서(linkedDocs)의 표시 순서 변경
+            moveChecklistLinkedDoc(workflowId, checklistIndex, docIndex, direction) {
+                const workflow = this.allData.workflows.find(w => w.id === workflowId);
+                if (!workflow) return;
+                const item = workflow.checklist[checklistIndex];
+                if (!item || !item.linkedDocs) return;
+                const newIndex = docIndex + (direction === 'up' ? -1 : 1);
+                if (newIndex < 0 || newIndex >= item.linkedDocs.length) return;
+                [item.linkedDocs[docIndex], item.linkedDocs[newIndex]] = [item.linkedDocs[newIndex], item.linkedDocs[docIndex]];
                 this.saveData();
                 this.refreshChecklistFormatsList(workflowId, checklistIndex);
             }
