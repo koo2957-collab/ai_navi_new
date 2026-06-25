@@ -7685,7 +7685,7 @@
                             workflow.completedDate = new Date().toISOString();
                             this.saveData();
                         }
-                    } else if (progress >= 0) {
+                    } else if (progress > 0) {
                         inProgress++;
                     }
                 });
@@ -7765,7 +7765,7 @@
                 if (filter === 'in-progress') {
                     workflows = workflows.filter(w => {
                         const progress = this.calculateProgress(w);
-                        return progress >= 0 && progress < 100;
+                        return progress > 0 && progress < 100;
                     });
                 } else if (filter === 'completed') {
                     workflows = workflows.filter(w => this.calculateProgress(w) === 100);
