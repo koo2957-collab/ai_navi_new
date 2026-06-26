@@ -184,6 +184,8 @@
         .btn-small { padding: 7px 14px; font-size: 0.82rem; }
         .btn-icon { width: 38px; height: 38px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; border-radius: 8px; }
         @keyframes btn-spin { to { transform: rotate(360deg); } }
+        .bg-emb-live-dot { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background: #22c55e; border-radius: 50%; box-shadow: 0 0 0 0 rgba(34,197,94,0.55); animation: bg-emb-pulse 1.6s infinite; display: none; pointer-events: none; }
+        @keyframes bg-emb-pulse { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); } 70% { box-shadow: 0 0 0 5px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
         .btn-spinner {
             display: inline-block; width: 13px; height: 13px; flex-shrink: 0;
             border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff;
@@ -4182,9 +4184,10 @@
                 </div>
 
                 <!-- 자료실 -->
-                <button class="btn btn-white" onclick="app.openLawLibrary()" style="gap:5px;" title="법령·매뉴얼 — AI 답변 작성 시 참고 자료로 활용되는 법령·지침 모음">
+                <button id="lawLibraryHeaderBtn" class="btn btn-white" onclick="app.openLawLibrary()" style="gap:5px;position:relative;" title="법령·매뉴얼 — AI 답변 작성 시 참고 자료로 활용되는 법령·지침 모음">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                     법령·매뉴얼
+                    <span id="lawLibraryEmbedDot" class="bg-emb-live-dot" title="백그라운드 임베딩 진행 중"></span>
                 </button>
 
                 <!-- 문서저장소 -->
@@ -19258,8 +19261,15 @@ ${aiPartnerCitationFirstRules}
                 this._updateLibBgBanner();
             }
 
+            // 헤더 "법령·매뉴얼" 버튼의 백그라운드 임베딩 진행 인디케이터(녹색 점) 갱신
+            _updateHeaderEmbedIndicator() {
+                const dot = document.getElementById('lawLibraryEmbedDot');
+                if (dot) dot.style.display = this._bgEmbRunning ? 'block' : 'none';
+            }
+
             // 법령 모달 상단 백그라운드 임베딩 진행 배너 갱신
             _updateLibBgBanner() {
+                this._updateHeaderEmbedIndicator();
                 const bannerId = 'lib-bg-embed-banner';
                 const modal = document.getElementById('lawLibraryModal');
                 if (!modal) return;
