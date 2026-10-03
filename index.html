@@ -1486,7 +1486,7 @@
         .wf-row-progress-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
         .wf-row-progress-pct { font-size: 0.73rem; font-weight: 700; width: 34px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
         .wf-row-deadline { width: 70px; flex-shrink: 0; font-size: 0.76rem; font-weight: 700; text-align: center; }
-        .wf-row-date { width: 90px; flex-shrink: 0; font-size: 0.73rem; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+        .wf-row-date { width: 120px; flex-shrink: 0; white-space: nowrap; font-size: 0.73rem; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
         :root.dark-mode .wf-row { background: var(--bg-panel, #1c2e46); }
         /* 📂 업무유형 카드 강조 스타일 */
         .workflow-card.package { border-top-color: #f97316; }
@@ -7604,7 +7604,10 @@
             // 화면에 보이는 생성일 + (가져온 업무면) 가져온 날
             _workDateLabel(workflow) {
                 const base = workflow.date || fmtDate(this.parseWorkflowDate(workflow));
-                return workflow.importedAt ? `${base} · ${fmtDate(workflow.importedAt, { short: true })} 가져옴` : base;
+                // 좁은 카드에서도 날짜 중간이 아니라 " / " 자리에서만 줄이 바뀌도록 두 날짜를 각각 묶는다
+                return workflow.importedAt
+                    ? `<span style="white-space:nowrap;">${base}</span> / <span style="white-space:nowrap;">${fmtDate(workflow.importedAt)} 가져옴</span>`
+                    : base;
             }
 
             // 기간 필터용 "목록에 들어온 날" — 가져온 업무는 생성일과 가져온 날 중 늦은 날 (새 Date 반환)
@@ -7628,7 +7631,7 @@
                 }
                 const parts = [];
                 if (createdText) parts.push(`생성 ${createdText}`);
-                if (workflow.importedAt) parts.push(`가져옴 ${fmtDate(workflow.importedAt, { short: true })}`);
+                if (workflow.importedAt) parts.push(`가져옴 ${fmtDate(workflow.importedAt)}`);
                 return parts.join(' · ');
             }
 
@@ -8850,7 +8853,7 @@
                                 <span class="wf-row-progress-pct" style="color:${barColor};">${progress}%</span>
                             </div>
                             <div class="wf-row-deadline" style="color:${dlColor};display:flex;align-items:center;justify-content:center;gap:3px;">${itemMarker}${dlText}</div>
-                            <div class="wf-row-date">${workflow.date || ''}${workflow.importedAt ? `<div style="font-size:0.66rem;line-height:1.3;opacity:0.85;">${fmtDate(workflow.importedAt, { short: true })} 가져옴</div>` : ''}</div>
+                            <div class="wf-row-date">${workflow.date || ''}${workflow.importedAt ? `<div style="font-size:0.68rem;line-height:1.35;opacity:0.85;">${fmtDate(workflow.importedAt)} 가져옴</div>` : ''}</div>
                             <div style="width:20px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
                                 <button onclick="event.stopPropagation();app.toggleReference(${workflow.id});" title="${rowRefTitle}"
                                         style="border:none;background:transparent;cursor:pointer;padding:2px;display:flex;align-items:center;opacity:${rowIsReference ? '1' : '0.4'}"
@@ -14701,46 +14704,10 @@ ${item.result.text}
             }
 
             // 내보내기 상태 선택 모달 — 진행상태 포함 여부를 사용자가 선택
+            // 내보내기: 선택 없이 항상 진행 상태까지 모두 담은 파일 하나를 만든다.
+            // (그대로 이어받기 / 새로 시작은 받는 쪽이 가져올 때 선택 — 호출부 호환을 위해 이름 유지)
             showExportStateChoiceModal(workflowIds) {
-                const existing = document.querySelector('.export-state-choice-modal');
-                if (existing) existing.remove();
-
-                const count = workflowIds.length;
-                const label = count === 1 ? '업무 1건' : `업무 ${count}건`;
-                const modal = document.createElement('div');
-                modal.className = 'modal show export-state-choice-modal';
-                modal.innerHTML = `
-                    <div class="modal-content" style="max-width:440px;">
-                        <div class="modal-header">
-                            <div class="modal-title">내보내기 방식 선택</div>
-                            <button class="close-btn" onclick="this.closest('.modal').remove();app.restoreBodyScroll();">&times;</button>
-                        </div>
-                        <div class="modal-body" style="padding:16px 20px;">
-                            <div style="font-size:0.88rem;color:var(--text-muted);margin-bottom:14px;">${this.escapeHtml(label)}을 어떤 방식으로 내보낼까요?</div>
-                            <div style="display:flex;flex-direction:column;gap:10px;">
-                                <button class="btn btn-primary" style="padding:14px 16px;text-align:left;display:flex;align-items:center;gap:12px;"
-                                    onclick="this.closest('.modal').remove();app.restoreBodyScroll();app.exportMultipleWorkflowPackages(${JSON.stringify(workflowIds)},{keepState:false})">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
-                                    <div>
-                                        <div style="font-weight:600;font-size:0.95rem;">공유 · 인수인계 (초기화)</div>
-                                        <div style="font-size:0.82rem;opacity:0.85;margin-top:2px;">완료·건너뜀·조치결과 초기화, 업무팁·서식·첨부파일은 그대로</div>
-                                    </div>
-                                </button>
-                                <button class="btn btn-secondary" style="padding:14px 16px;text-align:left;display:flex;align-items:center;gap:12px;"
-                                    onclick="this.closest('.modal').remove();app.restoreBodyScroll();app.exportMultipleWorkflowPackages(${JSON.stringify(workflowIds)},{keepState:true})">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="22" x2="16" y2="22"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
-                                    <div>
-                                        <div style="font-weight:600;font-size:0.95rem;">이어서 작업 (진행 상태 포함)</div>
-                                        <div style="font-size:0.82rem;opacity:0.85;margin-top:2px;">완료·건너뜀·조치결과 그대로</div>
-                                    </div>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="modal-footer" style="padding:12px 20px;">
-                            <button class="btn btn-ghost" style="width:100%;" onclick="this.closest('.modal').remove();app.restoreBodyScroll();">취소</button>
-                        </div>
-                    </div>`;
-                document.body.appendChild(modal);
+                return this.exportMultipleWorkflowPackages(workflowIds);
             }
 
             async _shareExecute(modal) {
@@ -14756,10 +14723,8 @@ ${item.result.text}
                 this.showExportStateChoiceModal(selectedIds);
             }
 
-            // 여러 업무를 단일 패키지 파일로 내보내기 (서식 포함)
-            // opts.keepState = true → 완료·건너뜀 상태 그대로 포함 (이관·인수인계용)
-            // opts.keepState = false (기본) → 초기화하여 내보내기 (재사용 템플릿용)
-            async exportMultipleWorkflowPackages(workflowIds, opts = {}) {
+            // 여러 업무를 단일 패키지 파일로 내보내기 (서식·첨부·진행 상태 모두 포함)
+            async exportMultipleWorkflowPackages(workflowIds) {
                 this.showToast('info', '⏳', `${workflowIds.length}개 업무 파일 생성 중...`);
                 try {
                     const workflows = [];
@@ -14771,28 +14736,10 @@ ${item.result.text}
                         if (!wf) continue;
 
                         // 복사본 생성
+                        // 진행 상태(체크·조치결과·건너뜀)까지 모두 담는다 — 그대로 이어받을지, 체크를 지우고
+                        // 새로 시작할지는 받는 쪽이 가져올 때 고른다 (보내는 쪽에서 잘못 고르면 되돌릴 수 없으므로)
                         const wfCopy = JSON.parse(JSON.stringify(wf));
-                        if (wfCopy.checklist) {
-                            wfCopy.checklist.forEach(item => {
-                                // 업무팁·서식·첨부파일·법령연결 등 "노하우"는 keepState와 무관하게 항상 유지.
-                                // 조치결과·완료/건너뜀·분기처리 등 "이번 회차의 진행 상태"만 keepState로 결정:
-                                // - keepState=true (같은 사람이 다른 PC에서 이어서 작업): 그대로 유지
-                                // - keepState=false (후임자·타인과 공유용): 초기화 → 받는 사람이 처음부터 체크
-                                if (!opts.keepState) {
-                                    if (item.result) { item.result = { text: '', summary: '' }; }
-                                    delete item.branchActionTaken;
-                                    item.completed = false;
-                                    delete item.skipped;
-                                }
-                            });
-                        }
-                        // 워크플로 자체의 완료/보관 상태도 같은 기준으로 결정
-                        if (!opts.keepState) {
-                            wfCopy.completedProcessed = false;
-                            delete wfCopy.completedDate;
-                            delete wfCopy.lastWorkedAt;
-                            wfCopy.isArchived = false;
-                        }
+                        delete wfCopy.lastWorkedAt;  // 보낸 사람의 작업 기록은 받는 쪽과 무관
                         // 폴더 정보는 내보내지 않음 — 받는 쪽은 항상 미분류로 들어옴
                         delete wfCopy.folderPath;
                         workflows.push(wfCopy);
@@ -14830,7 +14777,6 @@ ${item.result.text}
                         version: '6.5',
                         exportDate: new Date().toISOString(),
                         type: 'workflow_package',
-                        keepState: !!opts.keepState,  // 내보낸 방식 — 가져올 때 "그대로/복사하여 시작" 기본 선택에 사용
                         workflows,
                         checklistDetailsMap: allChecklistDetails,
                         formsData: allFormsData,
@@ -14853,7 +14799,7 @@ ${item.result.text}
                     const libCount = allLawLibraryData.files.length;
                     const repoDocCount = allRepoDocumentsData.files.length;
                     const repoDocPart = repoDocCount > 0 ? ` · 서식·문서함 ${repoDocCount}개` : '';
-                    this.showToast('success', '✅', `업무 파일 생성 완료 (업무 ${workflows.length}개 · 서식 ${formCount}개 · 첨부자료 ${attachCount}개 · 법령·매뉴얼 ${libCount}개${repoDocPart} 포함)`);
+                    this.showToast('success', '✅', `업무 파일 생성 완료 — 진행 상태·조치결과 포함 (업무 ${workflows.length}개 · 서식 ${formCount}개 · 첨부자료 ${attachCount}개 · 법령·매뉴얼 ${libCount}개${repoDocPart} 포함)`);
                 } catch (err) {
                     console.error('공유 패키지 생성 오류:', err);
                     this.showToast('error', '❌', '업무 파일 생성 실패: ' + err.message);
@@ -18367,13 +18313,18 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
             // ── 업무 파일 가져오기 방식 선택 (메인 "업무 가져오기"·백업 관리 "가져오기"·템플릿 파일 가져오기 공용) ──
             // 그대로 가져오기: 체크·조치결과·원래 생성일 유지 (인수인계·이관)
             // 복사하여 시작: 체크 해제, 생성일 오늘, 마감일 새로 지정 (같은 업무 재사용)
-            // 내보낼 때 고른 방식(keepState)을 기본 선택으로 하고, 기록이 없는 예전 파일은 진행 상태 유무로 추천한다.
+            // 파일에는 진행 상태가 모두 담겨 있으므로, 파일 속 업무 상태(진행 중인지)로 추천한다.
             _showPackageImportChoice(imported) {
                 const workflows = imported.workflows || [];
-                const hasProgress = workflows.some(w => (w.checklist || []).some(it => this.normalizeCompleted(it) || it.skipped));
-                const recommended = imported.keepState === true ? 'asIs'
-                    : imported.keepState === false ? 'new'
-                    : (hasProgress ? 'asIs' : 'new');
+                // 진행 중(일부만 처리)인 업무가 있으면 인수인계로 보고 "그대로", 모두 끝났거나 손대지 않은
+                // 업무뿐이면 참고·재사용으로 보고 "복사하여 시작"을 추천
+                const isMidway = w => {
+                    if (w.completedProcessed) return false;
+                    const items = (w.checklist || []).filter(it => !(this.isSubItem(it.text) || (it.indent || 0) > 0));
+                    const handled = items.filter(it => this.normalizeCompleted(it) || it.skipped).length;
+                    return handled > 0 && handled < items.length;
+                };
+                const recommended = workflows.some(isMidway) ? 'asIs' : 'new';
                 this._pendingPackageImport = imported;
                 document.getElementById('packageImportChoiceModal')?.remove();
                 const titles = workflows.slice(0, 3).map(w => this.escapeHtml(w.title || '(제목 없음)')).join(', ')
@@ -18577,7 +18528,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                             } else {
                                 newKey = oldKey.replace(/^\d+/, String(newId));
                             }
-                            checklistDetails[newKey] = { ...detail, forms: [], attachments: [] };
+                            checklistDetails[newKey] = { ...detail, forms: [], attachments: [], ...(startFresh ? { result: '' } : {}) };
                             this.checklistDetails[newKey] = checklistDetails[newKey];
                             idRemap[oldKey] = newKey;
                             await this.dbManager.saveChecklistDetails(newKey, this.checklistDetails[newKey]).catch(() => {});
@@ -18587,7 +18538,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                     if (wf.checklistDetails) {
                         for (const [oldKey, detail] of Object.entries(wf.checklistDetails)) {
                             const newKey = oldKey.replace(/^\d+/, String(newId));
-                            checklistDetails[newKey] = { ...detail, forms: [] };
+                            checklistDetails[newKey] = { ...detail, forms: [], ...(startFresh ? { result: '' } : {}) };
                             this.checklistDetails[newKey] = checklistDetails[newKey];
                             idRemap[oldKey] = newKey;
                         }
@@ -18630,6 +18581,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                             if (item.branchActionTaken) delete item.branchActionTaken;
                             if (item.branchOnly) delete item.branchOnly;
                             if (item.skipped) { delete item.skipped; delete item.skipReason; delete item.skipActionId; }
+                            delete item.skipReason;  // 건너뛰지 않은 항목에 남은 예전 사유도 정리
                         });
                     }
                     if (isBackupRestore && newWorkflow.folderPath && !this._folderPathExists(newWorkflow.folderPath)) {
