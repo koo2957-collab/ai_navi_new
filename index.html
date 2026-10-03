@@ -2741,12 +2741,6 @@
         .cim-file-btn { width:28px; height:28px; border:none; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; background:transparent; color:var(--text-muted); transition:background 0.15s, color 0.15s; }
         .cim-file-btn:hover { background:var(--bg-subtle); color:var(--text-dark); }
         .cim-file-btn.danger:hover { background:rgba(220,38,38,0.08); color:#dc2626; }
-        .ai-suggestion-popup { position: fixed; bottom: 22px; right: 22px; width: 380px; max-width: calc(100vw - 44px); background: var(--white); border-radius: 14px; border: 1px solid var(--border-subtle); box-shadow: 0 8px 32px rgba(17,31,53,0.16), 0 2px 8px rgba(17,31,53,0.08); z-index: var(--z-toast); overflow: hidden; animation: toastIn 0.2s ease; }
-        /* 체크리스트 항목 체크 직후 뜨는 "다음 업무 추천" 팝업만 좌측 하단으로 이동 — 우측 하단은
-           380px 너비의 AI 파트너 패널(업무절차 타임라인)과 정확히 겹쳐서, 방금 체크한 항목의
-           다음 단계·업무팁을 보려는 순간 그 내용을 오히려 팝업이 가려버리는 문제가 있었다.
-           워크플로 목록 화면에서 뜨는 다른 제안 팝업(#aiSuggestionPopup)은 그대로 우측 유지. */
-        #mainAISuggestionPopup.ai-suggestion-popup { left: 22px; right: auto; }
         @keyframes aiDot { 0%,80%,100% { opacity:0.25; transform:scale(0.7); } 40% { opacity:1; transform:scale(1); } }
         .report-type-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px; }
         .report-type-card { padding: 20px; border: 2px solid var(--border-light); border-radius: 12px; text-align: center; cursor: pointer; transition: var(--transition); }
@@ -3358,255 +3352,6 @@
             background: var(--bg-hover);
         }
         
-        :root.dark-mode .ai-suggestion-popup {
-            background: var(--bg-card);
-            border-color: var(--border-light);
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .popup-header {
-            color: #ffffff !important;
-            border-bottom-color: var(--border-light);
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .popup-header span {
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .popup-header [style*="color: var(--text-dark)"] {
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .popup-close {
-            color: #d0d0d0 !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .popup-close:hover {
-            background: var(--bg-hover);
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .suggestion-item {
-            background: var(--bg-input);
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .suggestion-reason {
-            background: var(--bg-input);
-            color: #f5f5f5 !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup * {
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .suggestion-actions {
-            border-top-color: var(--border-light);
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .suggestion-actions .btn {
-            color: #ffffff !important;
-            font-weight: 600;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .suggestion-actions .btn-success {
-            background: var(--success-green) !important;
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .suggestion-actions .btn-secondary {
-            background: var(--bg-hover) !important;
-            color: #ffffff !important;
-            border: 1px solid var(--border-light) !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup .suggestion-actions .btn:hover {
-            opacity: 0.9;
-        }
-        
-        /* AI 길잡이 팝업 내부 인라인 스타일 오버라이드 */
-        :root.dark-mode .ai-suggestion-popup [style*="color: #1a1a1a"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#1a1a1a"] {
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup [style*="color: #0369a1"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#0369a1"] {
-            color: var(--accent-light) !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup [style*="color: #0c4a6e"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#0c4a6e"] {
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup strong {
-            color: #ffffff !important;
-            font-weight: 700;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup span {
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup div {
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup p {
-            color: #f5f5f5 !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup li {
-            color: #f5f5f5 !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup h1,
-        :root.dark-mode .ai-suggestion-popup h2,
-        :root.dark-mode .ai-suggestion-popup h3,
-        :root.dark-mode .ai-suggestion-popup h4 {
-            color: #ffffff !important;
-        }
-        
-        /* 모든 텍스트 요소에 대한 강제 색상 적용 */
-        :root.dark-mode .ai-suggestion-popup label,
-        :root.dark-mode .ai-suggestion-popup a,
-        :root.dark-mode .ai-suggestion-popup code,
-        :root.dark-mode .ai-suggestion-popup pre {
-            color: #f5f5f5 !important;
-        }
-        
-        /* 인라인 스타일이 있는 모든 요소 오버라이드 */
-        :root.dark-mode .ai-suggestion-popup [style*="color"] {
-            color: #ffffff !important;
-        }
-        
-        /* 특정 색상 코드들을 밝은 색으로 변경 */
-        :root.dark-mode .ai-suggestion-popup [style*="color: #333"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#333"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #555"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#555"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #666"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#666"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #777"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#777"] {
-            color: #f5f5f5 !important;
-        }
-        
-        /* 팁 텍스트 색상 개선 (다크모드) */
-        :root.dark-mode .ai-suggestion-popup [style*="color: #856404"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#856404"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #92400e"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#92400e"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #78350f"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#78350f"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #d97706"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#d97706"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #b45309"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#b45309"] {
-            color: #fbbf24 !important;
-        }
-        
-        /* 예상소요시간 텍스트 색상 개선 (다크모드) */
-        :root.dark-mode .ai-suggestion-popup [style*="color: #0c4a6e"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#0c4a6e"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #065f46"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#065f46"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #047857"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#047857"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #0284c7"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#0284c7"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #059669"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#059669"] {
-            color: #60a5fa !important;
-        }
-        
-        /* 예상소요시간 값 텍스트 (더 밝게) */
-        :root.dark-mode .ai-suggestion-popup [style*="color: #0369a1"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#0369a1"] {
-            color: #93c5fd !important;
-        }
-        
-        /* 필요서식 텍스트 색상 개선 (다크모드) */
-        :root.dark-mode .ai-suggestion-popup [style*="color: #495057"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#495057"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #1e3a8a"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#1e3a8a"],
-        :root.dark-mode .ai-suggestion-popup [style*="color: #1e40af"],
-        :root.dark-mode .ai-suggestion-popup [style*="color:#1e40af"] {
-            color: #93c5fd !important;
-        }
-        
-        /* 필요서식 배경 다크모드 */
-        :root.dark-mode .ai-suggestion-popup [style*="background: #f8f9fa"],
-        :root.dark-mode .ai-suggestion-popup [style*="background:#f8f9fa"] {
-            background: var(--bg-input) !important;
-        }
-        
-        /* 필요서식 섹션 전체 스타일 (다크모드) */
-        :root.dark-mode .ai-suggestion-popup div[style*="background: #f8f9fa"] strong,
-        :root.dark-mode .ai-suggestion-popup div[style*="background:#f8f9fa"] strong {
-            color: #60a5fa !important;
-        }
-        
-        :root.dark-mode .ai-suggestion-popup div[style*="background: #f8f9fa"] div,
-        :root.dark-mode .ai-suggestion-popup div[style*="background:#f8f9fa"] div {
-            color: #93c5fd !important;
-        }
-        
-        /* 메인 팝업 다크모드 스타일 */
-        :root.dark-mode #mainAISuggestionPopup {
-            background: var(--bg-card) !important;
-            border-color: var(--border-light) !important;
-            color: #ffffff !important;
-        }
-        
-        :root.dark-mode #mainAISuggestionPopup * {
-            color: #ffffff !important;
-        }
-        
-        /* 메인 팝업 내부 팁과 예상소요시간 색상 */
-        :root.dark-mode #mainAISuggestionPopup [style*="color: #d97706"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color:#d97706"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color: #b45309"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color:#b45309"] {
-            color: #fbbf24 !important;
-        }
-        
-        :root.dark-mode #mainAISuggestionPopup [style*="color: #0284c7"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color:#0284c7"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color: #0369a1"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color:#0369a1"] {
-            color: #60a5fa !important;
-        }
-        
-        /* 메인 팝업 필요서식 텍스트 색상 */
-        :root.dark-mode #mainAISuggestionPopup [style*="color: #495057"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color:#495057"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color: #1e3a8a"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color:#1e3a8a"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color: #1e40af"],
-        :root.dark-mode #mainAISuggestionPopup [style*="color:#1e40af"] {
-            color: #93c5fd !important;
-        }
-        
-        /* 메인 팝업 필요서식 배경 */
-        :root.dark-mode #mainAISuggestionPopup [style*="background: #f8f9fa"],
-        :root.dark-mode #mainAISuggestionPopup [style*="background:#f8f9fa"] {
-            background: var(--bg-input) !important;
-        }
-        
-        /* 메인 팝업 필요서식 섹션 전체 스타일 (다크모드) */
-        :root.dark-mode #mainAISuggestionPopup div[style*="background: #f8f9fa"] strong,
-        :root.dark-mode #mainAISuggestionPopup div[style*="background:#f8f9fa"] strong {
-            color: #60a5fa !important;
-        }
-        
-        :root.dark-mode #mainAISuggestionPopup div[style*="background: #f8f9fa"] div,
-        :root.dark-mode #mainAISuggestionPopup div[style*="background:#f8f9fa"] div {
-            color: #93c5fd !important;
-        }
-        
         /* 다크모드에서 인라인 배경색 오버라이드 */
         :root.dark-mode [style*="background: #f0f9ff"],
         :root.dark-mode [style*="background:#f0f9ff"],
@@ -3638,17 +3383,6 @@
         }
         
         /* form-help-box 다크모드 (인라인 스타일 오버라이드 불필요 — 통합 시스템으로 대체) */
-        
-        /* suggestion-item 그라데이션 배경 다크모드 */
-        :root.dark-mode .suggestion-item[style*="linear-gradient"][style*="#f0f9ff"],
-        :root.dark-mode .suggestion-item[style*="linear-gradient"][style*="#e0f2fe"] {
-            background: var(--bg-info) !important;
-            border-left-color: var(--accent) !important;
-        }
-        
-        :root.dark-mode .suggestion-item[style*="linear-gradient"] * {
-            color: var(--text-dark) !important;
-        }
         
         /* workflow-tree-item 호버 다크모드 */
         :root.dark-mode .workflow-tree-item:hover {
@@ -5316,20 +5050,6 @@
     </div>
 
 
-    <!-- AI 업무파트너 제안 팝업 -->
-    <div id="aiSuggestionPopup" class="ai-suggestion-popup" style="display: none;">
-        <div class="popup-header">
-            <span style="font-size: 1.1rem; font-weight: 700; color: var(--text-dark);">다음 업무 제안</span>
-            <button class="popup-close" onclick="app.closeAISuggestion()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #6c757d; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: all 0.2s ease;">&times;</button>
-        </div>
-        <div id="aiSuggestionContent" style="max-height: 400px; overflow-y: auto; padding-right: 8px;"></div>
-        <div class="suggestion-actions" style="display: flex; gap: 10px; margin-top: 20px; padding-top: 15px; border-top: 1px solid #e9ecef;">
-            <button class="btn btn-success" onclick="app.acceptAISuggestion()" style="flex: 1; padding: 12px; font-size: 0.95rem; font-weight: 600;">
-                ✓ 동의하고 시작
-            </button>
-        </div>
-    </div>
-
     <!-- 공문 작성 모달 -->
     <div class="modal" id="officialDocModal">
         <div class="modal-content">
@@ -6655,8 +6375,6 @@
                 this.tempImportData = null;  // 임시 가져오기 데이터 (sessionStorage 대신 메모리에 저장)
                 this.toastTimer = null;  // Toast 알림 타이머
                 this.saveDataTimer = null;  // saveData debounce 타이머
-                this.aiSuggestionInProgress = false;  // AI 제안 중복 호출 방지
-                this.aiSuggestionTimeout = null;  // AI 제안 타임아웃
                 this.eventListenersAttached = false;  // 이벤트 리스너 중복 방지 플래그
                 this.modalScrollPosition = 0;  // 모달 열기 전 스크롤 위치 저장
                 this.expandedFolders = new Set();
@@ -11540,11 +11258,11 @@
                 // (branchActionTaken은 그대로 유지 — 이 항목 때문에 건너뛰어진 다른 항목들의 되돌리기 연결이 끊기지 않도록)
                 if (currentItem.branchOnly) delete currentItem.branchOnly;
 
-                // 완료일시 기록 및 AI 제안 트리거
+                // 완료일시 기록 및 완료 후 처리
                 if (currentItem.completed) {
                     currentItem.completedAt = new Date().toLocaleString('ko-KR');
-                    // 체크 시 AI 업무파트너 제안 트리거
-                    setTimeout(() => this.checkMainAISuggestion(workflowId), 500);
+                    // 전체 완료 알림 등 체크 완료 후 처리
+                    setTimeout(() => this._onChecklistItemCompleted(workflowId), 500);
                     // 항목 완료 시 해당 체크리스트 자동으로 닫기
                     if (currentItem.expanded) {
                         currentItem.expanded = false;
@@ -13310,7 +13028,7 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
                         parent.completedAt = new Date().toLocaleString('ko-KR');
                         parent.completedViaSubItems = true;
                         if (parent.expanded) parent.expanded = false;
-                        setTimeout(() => this.checkMainAISuggestion(workflow.id), 500);
+                        setTimeout(() => this._onChecklistItemCompleted(workflow.id), 500);
                     }
                 } else if (parent.completedViaSubItems) {
                     parent.completed = false;
@@ -13889,8 +13607,8 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
                 item.completed = checked;
                 if (checked) {
                     item.completedAt = new Date().toLocaleString('ko-KR');
-                    // 체크 시 AI 업무파트너 제안 트리거
-                    setTimeout(() => this.checkAISuggestion(), 500);
+                    // 전체 완료 알림 등 체크 완료 후 처리 (수정 창은 건너뛴 항목도 미완료로 셈 — 기존 동작 유지)
+                    setTimeout(() => this._onChecklistItemCompleted(this.currentEditingWorkflowId, false), 500);
                 } else {
                     item.completedAt = null;
                 }
@@ -14658,392 +14376,31 @@ ${item.result.text}
                 progressFill.style.width = `${progress}%`;
             }
             
-            // AI 업무파트너 제안 체크 (메인 작업창용)
-            async checkMainAISuggestion(workflowId) {
-                // 중복 호출 방지
-                if (this.aiSuggestionInProgress) {
-                    return;
-                }
-                
+            // 체크 완료 직후 처리: 모든 항목 완료 시 축하 알림, AI 미연결 시 업무절차 화면 갱신.
+            // (예전엔 여기서 AI "다음 업무 추천" 팝업을 띄웠으나, 업무절차 화면·AI 길잡이와 내용이 겹치고
+            //  체크할 때마다 로딩 표시와 팝업이 떠서 작업 흐름을 끊어 제거함)
+            _onChecklistItemCompleted(workflowId, skippedCountsAsDone = true) {
                 const workflow = this.allData.workflows.find(w => w.id === workflowId);
                 if (!workflow || !workflow.checklist) return;
-                
-                const completed = workflow.checklist.filter(item => this.normalizeCompleted(item));
-                const skipped = workflow.checklist.filter(item => item.skipped === true); // 건너뛴 항목
-                const incomplete = workflow.checklist.filter(item => !this.normalizeCompleted(item) && !item.skipped); // 미완료이면서 건너뛰지 않은 항목
-                
-                if (incomplete.length === 0) {
-                    // 모든 항목 완료 시 축하 메시지
+                const remaining = workflow.checklist.filter(item =>
+                    !this.normalizeCompleted(item) && !(skippedCountsAsDone && item.skipped === true));
+                if (remaining.length === 0) {
                     this.showToast('success', '🎉', '모든 체크리스트 항목이 완료되었습니다!');
                     return;
                 }
-                
-                // API 키 확인
-                const provider = this.allData.provider || 'gemini';
-                let apiKey;
-                if (provider === 'gemini') {
-                    apiKey = this.allData.geminiApiKey;
-                } else if (provider === 'chatgpt') {
-                    apiKey = this.allData.chatgptApiKey;
-                } else if (provider === 'claude') {
-                    apiKey = this.allData.claudeApiKey;
-                }
-                
-                if (!apiKey) {
-                    this.refreshAIPanelDashboardIfNeeded(); // AI 미연결 시 업무 현황판을 최신 상태로 갱신
-                    return; // API 키가 없으면 제안하지 않음
-                }
-                
-                // 로딩 표시 (다음 업무 추천용)
-                this.showAILoadingIndicator('next-recommendation');
-                this.aiSuggestionInProgress = true;
-                
-                // 타임아웃 설정 (30초)
-                this.aiSuggestionTimeout = setTimeout(() => {
-                    if (this.aiSuggestionInProgress) {
-                        this.hideAILoadingIndicator();
-                        this.aiSuggestionInProgress = false;
-                        this.showToast('error', '⏱️', 'AI 응답 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.');
-                    }
-                }, 30000);
-                
-                try {
-                    // 업무 정보 구성
-                    let projectInfo = `[업무 정보]\n제목: ${workflow.title}`;
-                    if (workflow.content) {
-                        projectInfo += `\n내용: ${workflow.content}`;
-                    }
-                    projectInfo += `\n`;
-                    
-                    // 완료된 항목 정보 구성 (맥락 포함, 하위 항목 관계 포함)
-                    let completedInfo = `[완료된 항목]\n`;
-                    if (completed.length === 0) {
-                        completedInfo += `없음\n`;
-                    } else {
-                        completed.forEach((item, idx) => {
-                            const actualIndex = workflow.checklist.indexOf(item);
-                            const isSub = this.isSubItem(item.text);
-                            const indent = isSub ? '  └─ ' : '';
-                            completedInfo += `${indent}${item.text}\n`;
-                            
-                            // 결과요약이 있으면 포함
-                            if (item.result?.summary) {
-                                completedInfo += `   🤖 결과: ${item.result.summary}\n`;
-                            }
-                            
-                            // 업무팁이 있으면 포함
-                            if (item.tip?.content) {
-                                completedInfo += `   💡 팁: ${item.tip.content}\n`;
-                            }
-                        });
-                    }
-
-                    // 건너뛴 항목 정보 추가 (문맥 파악용, 하위 항목 관계 포함)
-                    let skippedInfo = `[건너뛴 항목 (이미 처리됨)]\n`;
-                    if (skipped.length === 0) {
-                        skippedInfo += `없음\n`;
-                    } else {
-                        skipped.forEach((item) => {
-                            const actualIndex = workflow.checklist.indexOf(item);
-                            const isSub = this.isSubItem(item.text);
-                            const indent = isSub ? '  └─ ' : '';
-                            skippedInfo += `${indent}${item.text} (사유: ${item.skipReason})\n`;
-                        });
-                    }
-                    
-                    // 미완료 항목 정보 구성 (업무팁, 첨부서식, 하위 항목 관계 포함)
-                    // linkedDocs(서식·문서함 연결문서) 이름 조회를 위해 메타 캐시 준비
-                    if (!this._repoDocMetaCache) await this._loadRepoDocMetaCache();
-                    let incompleteInfo = `[미완료 항목 (해야 할 일)]\n`;
-                    incomplete.forEach((item, idx) => {
-                        const actualIndex = workflow.checklist.indexOf(item);
-                        const isSub = this.isSubItem(item.text);
-                        const indent = isSub ? '  └─ ' : '';
-                        incompleteInfo += `${idx + 1}. ${indent}${item.text}\n`;
-                        
-                        // 하위 항목인 경우 부모 항목 정보 추가
-                        if (isSub && actualIndex >= 0) {
-                            const parentInfo = this.findParentItem(workflow.checklist, actualIndex);
-                            if (parentInfo) {
-                                incompleteInfo += `   📌 상위 항목: ${parentInfo.item.text}\n`;
-                            }
-                        }
-                        
-                        // 업무팁이 있으면 포함
-                        if (item.tip?.content) {
-                            incompleteInfo += `   💡 팁: ${item.tip.content}\n`;
-                        }
-                        
-                        // 첨부서식이 있으면 포함 (제목만, 구버전 formats + 서식·문서함 연결문서 linkedDocs 모두 포함)
-                        let itemFormatNames = [];
-                        if (item.formats && item.formats.length > 0) {
-                            itemFormatNames = item.formats.map(f => f.name || f);
-                        }
-                        if (Array.isArray(item.linkedDocs) && item.linkedDocs.length > 0) {
-                            const linkedNames = item.linkedDocs.map(docId => this._getRepoDocMeta(docId)?.name).filter(n => n && n.trim());
-                            itemFormatNames = itemFormatNames.concat(linkedNames);
-                        }
-                        if (itemFormatNames.length > 0) {
-                            incompleteInfo += `   📋 첨부서식: ${itemFormatNames.join(', ')}\n`;
-                        } else {
-                            incompleteInfo += `   📋 첨부서식: 없음\n`;
-                        }
-                        
-                        // 하위 항목이 있는 경우 하위 항목 정보 추가
-                        if (actualIndex >= 0) {
-                            const subItems = this.findSubItems(workflow.checklist, actualIndex);
-                            if (subItems.length > 0) {
-                                incompleteInfo += `   📋 하위 항목: ${subItems.map(s => s.item.text).join(', ')}\n`;
-                            }
-                        }
-                    });
-                    
-                    // 관련 문서 컨텍스트 (상위 1개)
-                    let nextDocContext = '';
-                    try {
-                        const nextDocs = await getProjectDocs(workflowId);
-                        if (nextDocs.length > 0) {
-                            const nKeywords = extractKeywords(workflow.checklist);
-                            const nDocsWithScore = nextDocs.map(doc => ({
-                                doc,
-                                score: calculateComprehensiveRelevance(doc, nKeywords, workflow.title, workflow.checklist, false)
-                            }));
-                            nDocsWithScore.sort((a, b) => b.score - a.score);
-                            const topDoc = nDocsWithScore[0]?.doc || nextDocs[0];
-                            if (topDoc) {
-                                nextDocContext = topDoc.summary
-                                    ? `[문서 요약]\n${topDoc.summary}`
-                                    : topDoc.content?.substring(0, 1500) || '';
-                            }
-                        }
-                    } catch(e) { /* 문서 없으면 무시 */ }
-
-                    const prompt = `${projectInfo}
-${completedInfo}
-${skippedInfo}
-${incompleteInfo}
-${nextDocContext ? `\n[참조 문서 - 업무 관련 첨부자료 요약]\n${nextDocContext}\n` : ''}
-【중요 지시사항 - 공무원 업무 특성상 필수】
-1. 위의 업무 정보에 명시된 내용만을 바탕으로 추천하세요. 추론하지 마세요.
-2. 완료된 항목의 결과 요약·업무팁과 [참조 문서]를 함께 참고하여 다음 항목을 추천하세요.
-3. [건너뛴 항목]들은 특정 사유로 이미 생략된 단계이므로 절대 추천하면 안 됩니다.
-4. [건너뛴 항목]의 사유를 참고하여, 현재 상황에 맞게 [미완료 항목] 중 하나를 골라주세요.
-5. 이유 작성 시, "~~ 사유로 ~~ 단계는 건너뛰었으므로, 이제 ~~를 하세요" 처럼 맥락을 언급해주세요.
-6. 각 미완료 항목의 첨부서식 정보를 참고하여 필요서식을 추천해주세요. 첨부서식이 없으면 "없음"이라고만 표시하세요.
-7. [참조 문서]가 있으면 추천 이유에 문서 근거를 한 문장 포함하세요. 문서에 없는 내용은 추론하지 마세요.
-
-위 업무 정보를 바탕으로, 다음에 해야 할 가장 적절한 "미완료 항목" 1개를 추천해주세요.
-
-다음 형식으로만 응답해주세요 (각 항목은 |로 구분):
-항목번호(미완료 항목 리스트 기준)|이유(2-3문장)|필요서식(쉼표로 구분, 첨부서식이 없으면 "없음"이라고 표시)|팁(1-2문장)|예상소요시간
-
-예시:
-1|혐의 없음으로 조사 단계는 건너뛰었으므로, 이제 바로 결과 보고서를 작성해야 합니다. 조사 결과가 없으므로 보고서 서두에 사유를 명시하세요.|결과보고서 양식|보고서는 간결하게 작성하세요.|1시간`;
-
-                    const suggestion = await this.callAI(prompt, { temperature: 0.2, taskComplexity: 'lite' });
-                    const parts = suggestion.split('|');
-                    
-                    if (parts.length >= 5) {
-                        const itemNum = parts[0].trim();
-                        const reason = parts[1].trim();
-                        const formats = parts[2].trim();
-                        const tip = parts[3].trim();
-                        const time = parts[4].trim();
-                        
-                        // 미완료 항목 번호로 실제 인덱스 찾기
-                        const itemIndex = parseInt(itemNum) - 1;
-                        if (itemIndex >= 0 && itemIndex < incomplete.length) {
-                            const nextItem = incomplete[itemIndex];
-                            const actualIndex = workflow.checklist.indexOf(nextItem);
-                            
-                            // 팝업 표시
-                            this.showAISuggestionPopup(workflowId, actualIndex, nextItem.text, reason, formats, tip, time);
-                        }
-                    } else {
-                        console.warn('AI 응답 형식이 올바르지 않습니다:', suggestion);
-                    }
-                } catch (error) {
-                    console.error('AI 제안 생성 오류:', error);
-                    // 사용자에게 에러 알림
-                    const errorMessage = error.message || 'AI 제안을 생성하는 중 오류가 발생했습니다.';
-                    if (!errorMessage.includes('API 키') && !errorMessage.includes('인증')) {
-                        this.showToast('error', '❌', 'AI 길안내를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-                    }
-                } finally {
-                    // 로딩 표시 제거 및 플래그 해제
-                    this.hideAILoadingIndicator();
-                    this.aiSuggestionInProgress = false;
-                    if (this.aiSuggestionTimeout) {
-                        clearTimeout(this.aiSuggestionTimeout);
-                        this.aiSuggestionTimeout = null;
-                    }
-                }
+                if (!this.isAIAvailable()) this.refreshAIPanelDashboardIfNeeded();
             }
-            
-            // AI 업무파트너 제안 체크 (수정 모달용 - 기존 함수 유지)
-            async checkAISuggestion() {
-                const workflow = this.allData.workflows.find(w => w.id === this.currentEditingWorkflowId);
-                if (!workflow || !workflow.checklist) return;
-                
-                const completed = workflow.checklist.filter(item => this.normalizeCompleted(item));
-                const incomplete = workflow.checklist.filter(item => !this.normalizeCompleted(item));
-                
-                if (incomplete.length === 0) {
-                    // 모든 항목 완료 시 축하 메시지
-                    this.showToast('success', '🎉', '모든 체크리스트 항목이 완료되었습니다!');
-                    return;
-                }
-                
-                // API 키 확인
-                const provider = this.allData.provider || 'gemini';
-                let apiKey;
-                if (provider === 'gemini') {
-                    apiKey = this.allData.geminiApiKey;
-                } else if (provider === 'chatgpt') {
-                    apiKey = this.allData.chatgptApiKey;
-                } else if (provider === 'claude') {
-                    apiKey = this.allData.claudeApiKey;
-                }
-                
-                if (!apiKey) {
-                    this.refreshAIPanelDashboardIfNeeded(); // AI 미연결 시 업무 현황판을 최신 상태로 갱신
-                    return; // API 키가 없으면 제안하지 않음
-                }
-                
-                try {
-                    // 업무 정보 구성
-                    let projectInfo = `[업무 정보]\n제목: ${workflow.title}`;
-                    if (workflow.content) {
-                        projectInfo += `\n내용: ${workflow.content}`;
-                    }
-                    projectInfo += `\n`;
-                    
-                    // 완료된 항목 정보 구성 (맥락 포함, 하위 항목 관계 포함)
-                    let completedInfo = `[완료된 항목]\n`;
-                    if (completed.length === 0) {
-                        completedInfo += `없음\n`;
-                    } else {
-                        completed.forEach((item, idx) => {
-                            const actualIndex = workflow.checklist.indexOf(item);
-                            const isSub = this.isSubItem(item.text);
-                            const indent = isSub ? '  └─ ' : '';
-                            completedInfo += `${idx + 1}. ${indent}${item.text}\n`;
-                            
-                            // 결과요약이 있으면 포함
-                            if (item.result?.summary) {
-                                completedInfo += `   🤖 결과: ${item.result.summary}\n`;
-                            }
-                            
-                            // 업무팁이 있으면 포함
-                            if (item.tip?.content) {
-                                completedInfo += `   💡 팁: ${item.tip.content}\n`;
-                            }
-                        });
-                    }
-                    
-                    // 미완료 항목 정보 구성 (업무팁, 첨부서식, 하위 항목 관계 포함)
-                    // linkedDocs(서식·문서함 연결문서) 이름 조회를 위해 메타 캐시 준비
-                    if (!this._repoDocMetaCache) await this._loadRepoDocMetaCache();
-                    let incompleteInfo = `[미완료 항목]\n`;
-                    incomplete.forEach((item, idx) => {
-                        const actualIndex = workflow.checklist.indexOf(item);
-                        const isSub = this.isSubItem(item.text);
-                        const indent = isSub ? '  └─ ' : '';
-                        incompleteInfo += `${idx + 1}. ${indent}${item.text}\n`;
-                        
-                        // 하위 항목인 경우 부모 항목 정보 추가
-                        if (isSub && actualIndex >= 0) {
-                            const parentInfo = this.findParentItem(workflow.checklist, actualIndex);
-                            if (parentInfo) {
-                                incompleteInfo += `   📌 상위 항목: ${parentInfo.item.text}\n`;
-                            }
-                        }
-                        
-                        // 업무팁이 있으면 포함
-                        if (item.tip?.content) {
-                            incompleteInfo += `   💡 팁: ${item.tip.content}\n`;
-                        }
-                        
-                        // 첨부서식이 있으면 포함 (제목만, 구버전 formats + 서식·문서함 연결문서 linkedDocs 모두 포함)
-                        let itemFormatNames = [];
-                        if (item.formats && item.formats.length > 0) {
-                            itemFormatNames = item.formats.map(f => f.name || f);
-                        }
-                        if (Array.isArray(item.linkedDocs) && item.linkedDocs.length > 0) {
-                            const linkedNames = item.linkedDocs.map(docId => this._getRepoDocMeta(docId)?.name).filter(n => n && n.trim());
-                            itemFormatNames = itemFormatNames.concat(linkedNames);
-                        }
-                        if (itemFormatNames.length > 0) {
-                            incompleteInfo += `   📋 첨부서식: ${itemFormatNames.join(', ')}\n`;
-                        } else {
-                            incompleteInfo += `   📋 첨부서식: 없음\n`;
-                        }
-                        
-                        // 하위 항목이 있는 경우 하위 항목 정보 추가
-                        if (actualIndex >= 0) {
-                            const subItems = this.findSubItems(workflow.checklist, actualIndex);
-                            if (subItems.length > 0) {
-                                incompleteInfo += `   📋 하위 항목: ${subItems.map(s => s.item.text).join(', ')}\n`;
-                            }
-                        }
-                    });
-                    
-                    const prompt = `${projectInfo}
-${completedInfo}
-${incompleteInfo}
 
-【중요 지시사항 - 공무원 업무 특성상 필수】
-1. 위의 업무 정보에 명시된 내용만을 바탕으로 추천하세요. 추론하지 마세요.
-2. 완료된 항목의 결과 요약과 업무팁만 참고하세요. 첨부 자료는 이 기능에서 참조하지 않습니다.
-3. 각 미완료 항목의 첨부서식 정보를 참고하여 필요서식을 추천해주세요. 첨부서식이 없으면 "없음"이라고만 표시하세요.
-
-위 업무 정보와 완료된 항목의 맥락을 바탕으로, 다음에 할 수 있는 가장 적절한 미완료 항목 1개를 추천해주세요.
-완료된 항목의 결과와 팁을 참고하여 논리적으로 연결되는 다음 단계를 추천해주세요.
-
-다음 형식으로만 응답해주세요 (각 항목은 |로 구분):
-항목번호|이유(2-3문장)|필요서식(쉼표로 구분, 첨부서식이 없으면 "없음"이라고 표시)|팁(1-2문장)|예상소요시간
-
-예시:
-2|현장 접근성 검토가 완료되었으므로, 이제 자료를 수집할 수 있습니다. 초기 자료 수집은 원인 규명에 핵심적인 단계입니다.|자료 목록표, 자료 촬영 체크리스트|자료는 비닐봉투 대신 종이봉투에 넣으세요. 습기에 손상될 수 있으니까|2-3시간`;
-
-                    const suggestion = await this.callAI(prompt, { temperature: 0.2, taskComplexity: 'lite' });
-                    const parts = suggestion.split('|');
-                    
-                    if (parts.length >= 5) {
-                        const itemNum = parts[0].trim();
-                        const reason = parts[1].trim();
-                        const formats = parts[2].trim();
-                        const tip = parts[3].trim();
-                        const time = parts[4].trim();
-                        
-                        // 항목 번호로 미완료 항목 찾기
-                        const itemIndex = parseInt(itemNum) - 1;
-                        const actualIndex = workflow.checklist.findIndex((item, idx) => 
-                            !this.normalizeCompleted(item) && workflow.checklist.filter(i => !this.normalizeCompleted(i)).indexOf(item) === itemIndex - completed.length
-                        );
-                        
-                        if (actualIndex >= 0 && actualIndex < workflow.checklist.length) {
-                            const suggestedItem = workflow.checklist[actualIndex];
-                            this.showAISuggestion(suggestedItem, reason, formats, tip, time, actualIndex);
-                        }
-                    }
-                } catch (error) {
-                    console.error('AI 제안 오류:', error);
-                    // 오류가 발생해도 사용자 경험에 영향 없도록 조용히 실패
-                }
-            }
-            
             // AI 로딩 표시
-            showAILoadingIndicator(mode = 'next-recommendation') {
+            showAILoadingIndicator(mode = 'current-task-guide') {
                 // 기존 로딩 표시 제거
                 const existing = document.getElementById('aiSuggestionLoading');
                 if (existing) existing.remove();
 
                 const configs = {
-                    'next-recommendation': { label: '다음 업무 추천', msg: '다음 단계를 분석 중입니다' },
                     'current-task-guide':  { label: '현재 할 일 안내', msg: '현재 할 일을 분석 중입니다' }
                 };
-                const cfg = configs[mode] || configs['next-recommendation'];
+                const cfg = configs[mode] || configs['current-task-guide'];
                 const starSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color:#8b5cf6;flex-shrink:0;"><path fill-rule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5zM18 1.5a.75.75 0 01.728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 010 1.456l-1.036.258a2.25 2.25 0 00-1.91 1.91l-.258 1.036a.75.75 0 01-1.456 0l-.258-1.036a2.25 2.25 0 00-1.91-1.91l-1.036-.258a.75.75 0 010-1.456l1.036-.258a2.25 2.25 0 001.91-1.91l.258-1.036A.75.75 0 0118 1.5z" clip-rule="evenodd"/></svg>`;
 
                 const loadingHtml = `
@@ -15072,68 +14429,6 @@ ${incompleteInfo}
             hideAILoadingIndicator() {
                 const loading = document.getElementById('aiSuggestionLoading');
                 if (loading) loading.remove();
-            }
-            
-            // AI 제안 표시 (메인 작업창용)
-            showAISuggestionPopup(workflowId, itemIndex, itemText, reason, formats, tip, time) {
-                // 로딩 표시 제거
-                this.hideAILoadingIndicator();
-                // 팝업 HTML 생성
-                const popupHtml = `
-                    <div class="ai-suggestion-popup" id="mainAISuggestionPopup" style="font-family:'Pretendard','Inter',-apple-system,'Malgun Gothic',sans-serif;">
-                        <!-- 헤더 -->
-                        <div style="flex-shrink:0;padding:14px 18px 13px;border-bottom:1px solid var(--border-light,#e8edf5);display:flex;align-items:center;justify-content:space-between;background:var(--white,#fff);border-radius:14px 14px 0 0;">
-                            <div style="display:flex;align-items:center;gap:10px;">
-                                <div style="width:3px;height:24px;background:#8b5cf6;border-radius:2px;flex-shrink:0;"></div>
-                                <div>
-                                    <div style="font-size:0.68rem;font-weight:700;letter-spacing:0.08em;color:#8b5cf6;text-transform:uppercase;margin-bottom:2px;display:flex;align-items:center;gap:4px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0;"><path fill-rule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5zM18 1.5a.75.75 0 01.728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 010 1.456l-1.036.258a2.25 2.25 0 00-1.91 1.91l-.258 1.036a.75.75 0 01-1.456 0l-.258-1.036a2.25 2.25 0 00-1.91-1.91l-1.036-.258a.75.75 0 010-1.456l1.036-.258a2.25 2.25 0 001.91-1.91l.258-1.036A.75.75 0 0118 1.5z" clip-rule="evenodd"/></svg>AI 길잡이</div>
-                                    <div style="font-size:0.9rem;font-weight:700;color:var(--text-dark,#1e2d47);letter-spacing:-0.02em;">다음 업무 추천</div>
-                                </div>
-                            </div>
-                            <button onclick="document.getElementById('mainAISuggestionPopup').remove()" style="width:26px;height:26px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;font-size:0.88rem;flex-shrink:0;" onmouseover="this.style.background='var(--bg-light)'" onmouseout="this.style.background='transparent'">✕</button>
-                        </div>
-                        <!-- 본문 -->
-                        <div style="padding:12px 16px 14px;max-height:60vh;overflow-y:auto;">
-                            <div style="padding:10px 12px;background:rgba(139,92,246,0.05);border-radius:8px;border:1px solid rgba(139,92,246,0.15);margin-bottom:9px;">
-                                <div style="font-size:0.85rem;font-weight:700;color:var(--text-dark,#1e2d47);letter-spacing:-0.01em;margin-bottom:${reason ? '5px' : '0'};">${this.escapeHtml(itemText)}</div>
-                                ${reason ? `<div style="font-size:0.78rem;color:var(--text-dark,#1e2d47);font-weight:400;line-height:1.55;opacity:0.8;">${this.escapeHtml(reason)}</div>` : ''}
-                            </div>
-                            ${formats && formats !== '없음' ? `
-                            <div style="padding:9px 12px;background:var(--bg-light);border-radius:8px;border:1px solid var(--border-subtle);margin-bottom:7px;">
-                                <div style="font-size:0.67rem;font-weight:700;color:var(--text-muted);margin-bottom:6px;">필요 서식</div>
-                                ${formats.split(/[,，、]/).map(f => f.trim()).filter(f => f && f !== '없음').map(f => `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:3px;"><span style="color:#8b5cf6;flex-shrink:0;margin-top:3px;font-size:0.63rem;">▸</span><span style="font-size:0.79rem;color:var(--text-dark,#1e2d47);line-height:1.5;">${this.escapeHtml(f)}</span></div>`).join('')}
-                            </div>` : ''}
-                            ${tip && tip !== '없음' ? `
-                            <div style="padding:9px 12px;background:var(--bg-light);border-radius:8px;border:1px solid var(--border-subtle);border-left:2px solid #f59e0b;margin-bottom:7px;">
-                                <div style="font-size:0.67rem;font-weight:700;color:#f59e0b;margin-bottom:4px;">업무 팁</div>
-                                <div style="font-size:0.79rem;color:var(--text-dark,#1e2d47);line-height:1.55;">${this.escapeHtml(tip)}</div>
-                            </div>` : ''}
-                            ${time ? `
-                            <div style="padding:7px 12px;background:var(--bg-light);border-radius:8px;border:1px solid var(--border-subtle);margin-bottom:7px;display:flex;align-items:center;gap:8px;">
-                                <span style="font-size:0.67rem;font-weight:700;color:var(--text-muted);">예상 소요</span>
-                                <span style="font-size:0.8rem;font-weight:600;color:var(--text-dark,#1e2d47);">${this.escapeHtml(time)}</span>
-                            </div>` : ''}
-                            <!-- 하단 버튼 -->
-                            <div style="display:flex;gap:7px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light,#e8edf5);">
-                                <button onclick="app.scrollToMainChecklistItem(${workflowId},${itemIndex});document.getElementById('mainAISuggestionPopup').remove();"
-                                        style="flex:1;padding:8px 12px;font-size:0.82rem;font-weight:700;background:#8b5cf6;color:white;border:none;border-radius:8px;cursor:pointer;font-family:inherit;transition:background 0.15s;letter-spacing:-0.01em;"
-                                        onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'">바로 시작</button>
-                                <button onclick="document.getElementById('mainAISuggestionPopup').remove()"
-                                        style="padding:8px 14px;font-size:0.82rem;font-weight:600;background:transparent;color:var(--text-muted);border:1px solid var(--border-light);border-radius:8px;cursor:pointer;font-family:inherit;transition:all 0.15s;"
-                                        onmouseover="this.style.background='var(--bg-light)';this.style.borderColor='var(--border-subtle)'" onmouseout="this.style.background='transparent';this.style.borderColor='var(--border-light)'">닫기</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                // 기존 팝업 제거
-                const existingPopup = document.getElementById('mainAISuggestionPopup');
-                if (existingPopup) existingPopup.remove();
-                
-                // 새 팝업 추가
-                document.body.insertAdjacentHTML('beforeend', popupHtml);
-                
-                // 자동 닫기 제거 - 사용자가 직접 닫기/버튼 클릭 시에만 닫힘
             }
             
             // 메인 체크리스트 항목으로 스크롤
@@ -15173,93 +14468,6 @@ ${incompleteInfo}
                 }, 100);
             }
             
-            // AI 제안 표시 (수정 모달용 - 기존 함수 유지)
-            showAISuggestion(item, reason, formats, tip, time, originalIndex) {
-                const popup = document.getElementById('aiSuggestionPopup');
-                const content = document.getElementById('aiSuggestionContent');
-                
-                if (!popup || !content) return;
-                
-                content.innerHTML = `
-                    <div class="suggestion-item" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 4px solid #0284c7;">
-                        <div style="font-weight: 700; margin-bottom: 10px; font-size: 1rem; color: #0369a1;">
-                            ✓ ${this.escapeHtml(item.text)}
-                        </div>
-                        <div class="suggestion-reason" style="line-height: 1.7;">
-                            <strong>이유:</strong> ${this.escapeHtml(reason || '다음 단계로 진행하기 적절합니다.')}
-                        </div>
-                    </div>
-                    ${formats && formats !== '없음' ? `
-                        <div style="margin-top: 14px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
-                            <strong style="display: block; margin-bottom: 8px; color: #1e40af;">📋 필요 서식:</strong>
-                            <div style="font-size: 0.9rem; color: #1e3a8a; line-height: 1.6; font-weight: 500;">
-                                ${formats.split(',').map(f => `• ${f.trim()}`).join('<br>')}
-                            </div>
-                        </div>
-                    ` : ''}
-                    ${tip && tip !== '없음' ? `
-                        <div style="margin-top: 14px; padding: 12px; background: #fff7ed; border-left: 4px solid #f59e0b; border-radius: 8px;">
-                            <strong style="display: block; margin-bottom: 8px; color: #d97706;">💡 팁:</strong>
-                            <div style="font-size: 0.9rem; color: #b45309; line-height: 1.6; font-style: italic;">
-                                "${this.escapeHtml(tip)}"
-                            </div>
-                        </div>
-                    ` : ''}
-                    ${time ? `
-                        <div style="margin-top: 14px; padding: 10px; background: #f0fdf4; border-radius: 8px; text-align: center;">
-                            <strong style="color: #059669;">⏱️ 예상 소요시간:</strong>
-                            <span style="font-weight: 700; color: #047857; font-size: 1.05rem; margin-left: 8px;">${this.escapeHtml(time)}</span>
-                        </div>
-                    ` : ''}
-                `;
-                
-                popup.dataset.suggestedIndex = originalIndex;
-                popup.style.display = 'block';
-                
-                // 5초 후 자동으로 사라지지 않도록 (사용자가 직접 닫아야 함)
-            }
-            
-            // AI 제안 수락
-            acceptAISuggestion() {
-                const popup = document.getElementById('aiSuggestionPopup');
-                if (!popup) return;
-                
-                const index = parseInt(popup.dataset.suggestedIndex);
-                
-                if (index >= 0 && !isNaN(index)) {
-                    const workflow = this.allData.workflows.find(w => w.id === this.currentEditingWorkflowId);
-                    if (workflow && workflow.checklist && index < workflow.checklist.length) {
-                        const item = workflow.checklist[index];
-                        if (item && !item.completed) {
-                            // 항목 펼치기
-                            item.expanded = true;
-                            this.displayEditChecklist(workflow.checklist);
-                            
-                            // 해당 항목으로 스크롤
-                            setTimeout(() => {
-                                const card = document.querySelector(`.checklist-card[data-index="${index}"]`);
-                                if (card) {
-                                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    // 카드 하이라이트 효과
-                                    card.style.boxShadow = '0 4px 12px rgba(2, 132, 199, 0.3)';
-                                    setTimeout(() => {
-                                        card.style.boxShadow = '';
-                                    }, 2000);
-                                }
-                            }, 200);
-                        }
-                    }
-                }
-                
-                this.closeAISuggestion();
-            }
-            
-            // AI 제안 닫기
-            closeAISuggestion() {
-                document.getElementById('aiSuggestionPopup').style.display = 'none';
-            }
-
-
             addTemplate() {
                 const name = document.getElementById('newTemplateName').value.trim();
                 const content = document.getElementById('newTemplateContent').value.trim();
