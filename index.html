@@ -20236,7 +20236,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
             // ── 음성 읽기 (TTS) 공통 엔진 ───────────────────────────────────
             // 화면별 자동읽기 설정: chat(업무파트너 답변) / procedure(업무절차 업무팁) / guide(AI 길잡이)
             // 읽기 방식: mode 'ai' = Gemini TTS 체인(최신순) → 실패 시 브라우저 기본 음성
-            //            mode 'local' = 항상 브라우저 기본 음성 (업무절차: 한도 절약 + 내부 노하우 외부 전송 방지)
+            //            mode 'local' = 항상 브라우저 기본 음성
             // API 미설정·오프라인·외부망 차단·한도 소진 시에는 모두 브라우저 기본 음성(PC 설치 한국어 음성)으로 읽는다.
             _getTTSChain() {
                 return [
@@ -20383,9 +20383,9 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                 return title ? '현재 단계, ' + title + '.\n' + detail : detail;
             }
 
-            ttsProcToggle(btn, isAuto = false) {  // 업무절차 업무팁 (항상 기본 음성)
+            ttsProcToggle(btn, isAuto = false) {  // 업무절차 업무팁 (AI 음성 우선)
                 const text = this._ttsProcText(btn?.closest('.proc-step-row'));
-                return this.ttsSpeak({ text, btn, mode: 'local', key: 'proc:' + this._ttsHash(text), isAuto });
+                return this.ttsSpeak({ text, btn, mode: 'ai', key: 'proc:' + this._ttsHash(text), isAuto });
             }
 
             // 진행중 단계가 바뀌었을 때(또는 절차 화면을 처음 열었을 때) 한 번만 자동으로 읽음
