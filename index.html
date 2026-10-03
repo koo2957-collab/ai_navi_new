@@ -1728,6 +1728,20 @@
             letter-spacing: -0.01em;
         }
         .ai-model-pill:hover { background: var(--bg-light); border-color: var(--accent); color: var(--accent); }
+        /* AI 답변 음성 읽기 (TTS) */
+        .tts-btn {
+            align-self: flex-start; display: inline-flex; align-items: center; gap: 4px;
+            margin-top: 4px; padding: 2px 8px; border: 1px solid var(--border-light); border-radius: 6px;
+            background: transparent; color: var(--text-muted); font-size: 0.7rem; font-weight: 600;
+            font-family: inherit; cursor: pointer; transition: all 0.15s; opacity: 0.75;
+        }
+        .tts-btn:hover { opacity: 1; color: var(--accent); border-color: var(--accent); }
+        .tts-btn.playing { opacity: 1; color: var(--accent); border-color: var(--accent); background: rgba(37,99,235,0.06); }
+        .ai-message:has(.chat-status) .tts-btn,
+        .ai-message:has(.message-content:empty) .tts-btn { display: none; }
+        .tts-spin { width: 9px; height: 9px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ttsSpin 0.7s linear infinite; }
+        @keyframes ttsSpin { to { transform: rotate(360deg); } }
+        .tts-auto-btn.on { color: var(--accent); border-color: var(--accent); background: rgba(37,99,235,0.06); }
         .ai-model-pill-chevron-svg { opacity: 0.4; flex-shrink: 0; transition: opacity 0.15s; }
         .ai-model-pill:hover .ai-model-pill-chevron-svg { opacity: 0.75; }
         .ai-model-selector-pos { position: relative; display: inline-block; }
@@ -4745,6 +4759,10 @@
                                 </div>
                             </div>
                         </div>
+                        <button type="button" class="ai-model-pill tts-auto-btn" id="aiTtsAutoBtn" onclick="app.toggleTTSAutoPlay()" title="답변 자동 읽기 꺼짐 (클릭하여 켜기)">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                            <span class="tts-auto-label">자동읽기 꺼짐</span>
+                        </button>
                         <span class="chat-input-hint">Enter 전송 · Shift+Enter 줄바꿈</span>
                         <button class="chat-send-btn" id="aiSendBtn">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -6672,6 +6690,7 @@
                 this.setupEventListeners();
                 this.updateProviderBadge();
                 this.updateModelSelectorUI();
+                this._initTTS();
                 this.restoreSidebarState();
                 this.restoreAiPanelState();
                 this.updateAiPanelPosition();
@@ -6857,6 +6876,7 @@
                     if (settings.selectedModel) data.selectedModel = settings.selectedModel;
                     if (settings.modelMode) data.modelMode = settings.modelMode;
                     if (settings.manualModel) data.manualModel = settings.manualModel;
+                    if (typeof settings.ttsAutoPlay === 'boolean') data.ttsAutoPlay = settings.ttsAutoPlay;
                     if (settings.apiStatus) data.apiStatus = settings.apiStatus;
                     if (settings.providerConnected) this.providerConnected = { ...this.providerConnected, ...settings.providerConnected };
                 }
@@ -7124,6 +7144,7 @@
                     selectedModel: this.allData.selectedModel,
                     modelMode: this.allData.modelMode,
                     manualModel: this.allData.manualModel,
+                    ttsAutoPlay: !!this.allData.ttsAutoPlay,
                     apiStatus: this.allData.apiStatus,
                     providerConnected: this.providerConnected,
                     version: '6.2'
@@ -20077,6 +20098,11 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                     'gemini-3.1-flash-lite':       'Gemini 3.1 Lite',
                     'gemini-2.5-flash-lite':       'Gemini 2.5 Lite',
                     'gemini-3.1-pro-preview':      'Gemini 3.1 Pro',
+                    // Gemini TTS
+                    'gemini-3.8-flash-tts':         'Gemini 3.8 Flash TTS',
+                    'gemini-3.8-flash-lite-tts':    'Gemini 3.8 Lite TTS',
+                    'gemini-3.1-flash-tts-preview': 'Gemini 3.1 Flash TTS',
+                    'gemini-2.5-flash-preview-tts': 'Gemini 2.5 Flash TTS',
                     // Gemma
                     'gemma-4-31b-it':              'Gemma 4 31B',
                     'gemma-4-26b-a4b-it':          'Gemma 4 26B',
@@ -20181,6 +20207,248 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                 if (label) label.textContent = mode === 'auto' ? '자동' : this._modelLabel(model);
             }
             // ── 자동/수동 모델 선택 시스템 끝 ──────────────────────────────
+
+            // ── AI 답변 음성 읽기 (TTS) ────────────────────────────────────
+            // Gemini TTS 체인(최신순, 한도 소진·오류 시 다음 모델) → 모두 실패하거나
+            // 오프라인·API 미설정이면 브라우저 기본 음성(speechSynthesis)으로 읽는다.
+            _getTTSChain() {
+                return [
+                    { model: 'gemini-3.8-flash-tts',          rpd: 10 },
+                    { model: 'gemini-3.8-flash-lite-tts',     rpd: 10 },
+                    { model: 'gemini-3.1-flash-tts-preview',  rpd: 10 },
+                    { model: 'gemini-2.5-flash-preview-tts',  rpd: 10 },
+                ];
+            }
+
+            _initTTS() {
+                this._ttsAudioCache = new WeakMap();   // 메시지 요소 → 생성된 음성 URL (다시 듣기 시 한도 미사용)
+                this._ttsExhausted = new Set();        // 이번 실행 중 429를 받은 TTS 모델
+                this._ttsSeq = 0;
+                const chatBox = document.getElementById('chatBox');
+                if (chatBox) {
+                    chatBox.querySelectorAll('.ai-message').forEach(m => this._ttsAttach(m));
+                    new MutationObserver(muts => {
+                        for (const mu of muts) mu.addedNodes.forEach(n => {
+                            if (n.nodeType !== 1) return;
+                            if (n.classList.contains('ai-message')) this._ttsAttach(n);
+                            else n.querySelectorAll?.('.ai-message').forEach(m => this._ttsAttach(m));
+                        });
+                    }).observe(chatBox, { childList: true });
+                }
+                if ('speechSynthesis' in window) speechSynthesis.getVoices();  // 음성 목록 미리 로드
+                this.updateTTSAutoUI();
+            }
+
+            // AI 메시지에 듣기 버튼 부착 (중복 부착 방지)
+            _ttsAttach(msgEl) {
+                if (!msgEl || msgEl.querySelector('.tts-btn')) return;
+                const content = msgEl.querySelector('.message-content');
+                if (!content) return;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'tts-btn';
+                btn.setAttribute('onclick', 'app.ttsToggle(this)');
+                btn.innerHTML = this._ttsBtnHtml('idle');
+                content.insertAdjacentElement('afterend', btn);
+            }
+
+            _ttsBtnHtml(state) {
+                if (state === 'loading') return '<span class="tts-spin"></span>음성 생성 중…';
+                if (state === 'playing') return '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>정지';
+                return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>듣기';
+            }
+
+            _ttsSetBtn(btn, state) {
+                if (!btn) return;
+                btn.innerHTML = this._ttsBtnHtml(state);
+                btn.classList.toggle('playing', state !== 'idle');
+            }
+
+            toggleTTSAutoPlay() {
+                this.allData.ttsAutoPlay = !this.allData.ttsAutoPlay;
+                this.saveData();
+                this.updateTTSAutoUI();
+                if (!this.allData.ttsAutoPlay) this.ttsStop();
+                this.showToast('info', '🔊', this.allData.ttsAutoPlay ? '답변 자동 읽기를 켰습니다' : '답변 자동 읽기를 껐습니다 (듣기 버튼으로 재생)');
+            }
+
+            updateTTSAutoUI() {
+                const btn = document.getElementById('aiTtsAutoBtn');
+                if (!btn) return;
+                const on = !!this.allData.ttsAutoPlay;
+                btn.classList.toggle('on', on);
+                btn.title = on ? '답변 자동 읽기 켜짐 (클릭하여 끄기)' : '답변 자동 읽기 꺼짐 (클릭하여 켜기)';
+                const label = btn.querySelector('.tts-auto-label');
+                if (label) label.textContent = on ? '자동읽기 켜짐' : '자동읽기 꺼짐';
+            }
+
+            // 답변 표시 직후 호출: 자동 읽기가 켜져 있으면 재생
+            _ttsAutoPlay(contentEl) {
+                const msg = contentEl?.closest?.('.ai-message');
+                if (!msg) return;
+                this._ttsAttach(msg);
+                if (this.allData.ttsAutoPlay) this.ttsToggle(msg.querySelector('.tts-btn'), true);
+            }
+
+            ttsStop() {
+                this._ttsSeq++;
+                if (this._ttsAudio) { this._ttsAudio.pause(); this._ttsAudio = null; }
+                if ('speechSynthesis' in window) speechSynthesis.cancel();
+                if (this._ttsBtn) this._ttsSetBtn(this._ttsBtn, 'idle');
+                this._ttsBtn = null;
+            }
+
+            async ttsToggle(btn, isAuto = false) {
+                if (!btn) return;
+                // 재생·생성 중인 버튼을 다시 누르면 정지
+                if (this._ttsBtn === btn) { this.ttsStop(); return; }
+                this.ttsStop();
+                const msg = btn.closest('.ai-message');
+                const text = this._ttsPrepareText(msg?.querySelector('.message-content'));
+                if (!text) { if (!isAuto) this.showToast('info', '🔊', '읽을 내용이 없습니다'); return; }
+
+                const seq = this._ttsSeq;
+                this._ttsBtn = btn;
+                const cached = this._ttsAudioCache?.get(msg);
+                if (cached) { this._ttsPlayUrl(cached, btn, seq); return; }
+
+                const useGemini = navigator.onLine && this.allData.provider === 'gemini' && !!this.allData.geminiApiKey;
+                if (useGemini) {
+                    this._ttsSetBtn(btn, 'loading');
+                    const url = await this._ttsGenerateGemini(text);
+                    if (seq !== this._ttsSeq) return;  // 생성 중 정지됨
+                    if (url) {
+                        this._ttsAudioCache?.set(msg, url);
+                        this._ttsPlayUrl(url, btn, seq);
+                        return;
+                    }
+                    this.showToast('info', '🔊', 'AI 음성 한도 소진 또는 오류 → 브라우저 기본 음성으로 읽습니다');
+                }
+                this._ttsSpeakBrowser(text, btn, seq);
+            }
+
+            // 답변 HTML → 읽기용 평문 (법령 보조 노트·버튼 제외, 기호 정리, 길이 제한)
+            _ttsPrepareText(contentEl) {
+                if (!contentEl || contentEl.querySelector('.chat-status')) return '';
+                const clone = contentEl.cloneNode(true);
+                clone.querySelectorAll('.law-assist-note, .tts-btn, script, style, button').forEach(e => e.remove());
+                clone.querySelectorAll('br').forEach(e => e.replaceWith('\n'));
+                clone.querySelectorAll('p, div, li, tr, h1, h2, h3, h4, h5, h6, blockquote, pre').forEach(e => e.append('\n'));
+                clone.querySelectorAll('td, th').forEach(e => e.append(' '));
+                let text = clone.textContent
+                    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '')
+                    .replace(/[*#>|_~\x60]+/g, ' ')
+                    .replace(/https?:\/\/\S+/g, '')
+                    .replace(/[ \t]+/g, ' ')
+                    .replace(/\s*\n\s*/g, '\n')
+                    .trim();
+                const MAX = 1500;
+                if (text.length > MAX) {
+                    const cut = text.slice(0, MAX);
+                    const end = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('다'), cut.lastIndexOf('\n'));
+                    text = cut.slice(0, end > MAX * 0.6 ? end + 1 : MAX) + '\n이하 내용은 화면에서 확인해 주세요.';
+                }
+                return text;
+            }
+
+            // Gemini TTS 체인 호출 → 재생 가능한 오디오 URL 반환 (실패 시 null)
+            async _ttsGenerateGemini(text) {
+                const key = this.allData.geminiApiKey;
+                const style = '공공기관 안내처럼 차분하고 정중한 목소리로 읽어 주세요:';
+                for (const { model, rpd } of this._getTTSChain()) {
+                    if (this._ttsExhausted.has(model) || this.getModelRPDUsage(model) >= rpd) continue;
+                    try {
+                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: `${style}\n${text}` }] }],
+                                generationConfig: {
+                                    responseModalities: ['AUDIO'],
+                                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } }
+                                }
+                            })
+                        });
+                        if (!res.ok) {
+                            if (res.status === 429) this._ttsExhausted.add(model);
+                            console.warn(`⚠️ [TTS ${model}] HTTP ${res.status} → 다음 모델 시도`);
+                            continue;
+                        }
+                        const data = await res.json();
+                        const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.data);
+                        if (!part) { console.warn(`⚠️ [TTS ${model}] 오디오 없음 → 다음 모델 시도`); continue; }
+                        this.trackAPICall(true, data.usageMetadata?.totalTokenCount || 0, model);
+                        return URL.createObjectURL(this._ttsToWavBlob(part.inlineData.data, part.inlineData.mimeType));
+                    } catch (e) {
+                        console.warn(`⚠️ [TTS ${model}] ${e.message} → 다음 모델 시도`);
+                    }
+                }
+                return null;
+            }
+
+            // 응답이 WAV면 그대로, 원시 PCM(audio/L16;rate=24000)이면 WAV 헤더를 붙인다
+            _ttsToWavBlob(b64, mimeType = '') {
+                const bin = atob(b64);
+                const pcm = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) pcm[i] = bin.charCodeAt(i);
+                if (/wav/i.test(mimeType) || bin.startsWith('RIFF')) return new Blob([pcm], { type: 'audio/wav' });
+                const rate = parseInt((mimeType.match(/rate=(\d+)/) || [])[1], 10) || 24000;
+                const header = new DataView(new ArrayBuffer(44));
+                const w = (o, s) => { for (let i = 0; i < s.length; i++) header.setUint8(o + i, s.charCodeAt(i)); };
+                w(0, 'RIFF'); header.setUint32(4, 36 + pcm.length, true); w(8, 'WAVE');
+                w(12, 'fmt '); header.setUint32(16, 16, true); header.setUint16(20, 1, true); header.setUint16(22, 1, true);
+                header.setUint32(24, rate, true); header.setUint32(28, rate * 2, true); header.setUint16(32, 2, true); header.setUint16(34, 16, true);
+                w(36, 'data'); header.setUint32(40, pcm.length, true);
+                return new Blob([header.buffer, pcm], { type: 'audio/wav' });
+            }
+
+            _ttsPlayUrl(url, btn, seq) {
+                const audio = new Audio(url);
+                this._ttsAudio = audio;
+                this._ttsSetBtn(btn, 'playing');
+                const done = () => { if (seq === this._ttsSeq) { this._ttsAudio = null; this._ttsBtn = null; this._ttsSetBtn(btn, 'idle'); } };
+                audio.onended = done;
+                audio.onerror = done;
+                audio.play().catch(() => {
+                    done();
+                    this.showToast('info', '🔊', '자동 재생이 차단되었습니다. 듣기 버튼을 눌러 주세요');
+                });
+            }
+
+            // 브라우저 기본 음성 (오프라인·API 미설정·한도 소진 시). 긴 글은 문장 단위로 나눠 큐에 넣는다.
+            _ttsSpeakBrowser(text, btn, seq) {
+                if (!('speechSynthesis' in window)) {
+                    this._ttsBtn = null;
+                    this._ttsSetBtn(btn, 'idle');
+                    this.showToast('error', '🔇', '이 브라우저는 음성 읽기를 지원하지 않습니다');
+                    return;
+                }
+                const voices = speechSynthesis.getVoices();
+                const voice = voices.find(v => /^ko/i.test(v.lang) && v.localService) || voices.find(v => /^ko/i.test(v.lang));
+                const chunks = text.match(/[^.!?。\n]+[.!?。]?\s*/g) || [text];
+                const parts = [];
+                for (const c of chunks) {
+                    const last = parts[parts.length - 1];
+                    if (last && last.length + c.length < 200) parts[parts.length - 1] = last + c;
+                    else parts.push(c);
+                }
+                this._ttsSetBtn(btn, 'playing');
+                parts.forEach((p, i) => {
+                    const u = new SpeechSynthesisUtterance(p.trim());
+                    u.lang = 'ko-KR';
+                    if (voice) u.voice = voice;
+                    u.rate = 1.05;
+                    if (i === parts.length - 1) {
+                        u.onend = () => { if (seq === this._ttsSeq) { this._ttsBtn = null; this._ttsSetBtn(btn, 'idle'); } };
+                    }
+                    u.onerror = (e) => {
+                        if (e.error === 'canceled' || e.error === 'interrupted') return;
+                        if (seq === this._ttsSeq) { this._ttsBtn = null; this._ttsSetBtn(btn, 'idle'); }
+                    };
+                    speechSynthesis.speak(u);
+                });
+            }
+            // ── AI 답변 음성 읽기 (TTS) 끝 ─────────────────────────────────
 
             _geminiSystemInstruction() {
                 return `당신은 대한민국 공무원 행정 업무를 지원하는 전문 AI 보조관입니다.
@@ -20850,13 +21118,13 @@ ${aiPartnerCitationFirstRules}
                                         // 이미지 파일이 있으면 함께 전송 (멀티턴 미지원, 단일 호출)
                                         const answer = await this.callAIWithDocuments(finalQuestion, imageFiles);
                                         this.removeLastAIMessage();
-                                        this.addAIMessage('ai', this.formatAIResponse(answer), this._lastUsedModel);
+                                        this._ttsAutoPlay(this.addAIMessage('ai', this.formatAIResponse(answer), this._lastUsedModel));
                                         this.pushToChatHistory(question, answer);
                                     } else {
                                         // 텍스트만 있으면 대화 이력 포함 호출
                                         const answer = await this.callAIWithHistory(this.buildChatMessages(finalQuestion), { overrideModel: aiConfig.model, thinking: aiConfig.thinking, thinkingBudget: aiConfig.thinkingBudget, temperature: aiConfig.temperature });
                                         this.removeLastAIMessage();
-                                        this.addAIMessage('ai', this.formatAIResponse(answer), this._lastUsedModel);
+                                        this._ttsAutoPlay(this.addAIMessage('ai', this.formatAIResponse(answer), this._lastUsedModel));
                                         this.pushToChatHistory(question, answer);
                                     }
                                     return;
@@ -20873,7 +21141,7 @@ ${aiPartnerCitationFirstRules}
 위의 업무 정보와 첨부된 문서를 참조하여 답변해주세요.`;
                                     const answer = await this.callAIWithDocuments(finalQuestion, attachments);
                                     this.removeLastAIMessage();
-                                    this.addAIMessage('ai', this.formatAIResponse(answer), this._lastUsedModel);
+                                    this._ttsAutoPlay(this.addAIMessage('ai', this.formatAIResponse(answer), this._lastUsedModel));
                                     this.pushToChatHistory(question, answer);
                                     return;
                                 }
@@ -20925,13 +21193,14 @@ ${aiPartnerCitationFirstRules}
                         const estimatedTokens = Math.ceil((finalQuestion.length + (answer||'').length) / 2);
                         this.trackAPICall(true, estimatedTokens, this._lastUsedModel);
                         this.pushToChatHistory(question, answer || streamFull);
+                        this._ttsAutoPlay(streamEl);
                         // 법제처 보조: 최신성 검증 + 관련법령 (비동기, UI 블로킹 없음)
                         this._appendLawAssistNote(answer || streamFull, this.selectedWorkflowId);
                     } else {
                         // ChatGPT/Claude: 기존 방식
                         const answer = await this.callAIWithHistory(this.buildChatMessages(finalQuestion), { overrideModel: aiConfig.model, thinking: aiConfig.thinking, thinkingBudget: aiConfig.thinkingBudget, temperature: aiConfig.temperature });
                         this.removeLastAIMessage();
-                        this.addAIMessage('ai', this.formatAIResponse(answer), this._lastUsedModel);
+                        this._ttsAutoPlay(this.addAIMessage('ai', this.formatAIResponse(answer), this._lastUsedModel));
                         this.pushToChatHistory(question, answer);
                         // 법제처 보조: 최신성 검증 + 관련법령 (비동기)
                         this._appendLawAssistNote(answer, this.selectedWorkflowId);
@@ -21048,6 +21317,7 @@ ${aiPartnerCitationFirstRules}
                 contentDiv.innerHTML = `<div class="message-label">${labelHtml}</div><div class="message-content">${content}</div>`;
                 msg.appendChild(contentDiv);
                 chatBox.appendChild(msg);
+                if (type !== 'user' && this._ttsAudioCache) this._ttsAttach(msg);  // 듣기 버튼
                 chatBox.scrollTop = chatBox.scrollHeight;
                 return msg.querySelector('.message-content');  // 스트리밍용 참조 반환
             }
@@ -23963,6 +24233,7 @@ ${aiPartnerCitationFirstRules}
                     if (msgs.length === 0) return;
                     const lastMsg = msgs[msgs.length - 1];
                     const noteEl = document.createElement('div');
+                    noteEl.className = 'law-assist-note';
                     noteEl.style.cssText = 'margin-top:10px;padding-top:8px;border-top:1px solid var(--border-subtle);font-size:0.78rem;color:var(--text-muted);line-height:1.6;';
                     noteEl.innerHTML = this.formatAIResponse(note);
                     lastMsg.appendChild(noteEl);
@@ -29164,6 +29435,7 @@ ${originalContent}`;
                         </div>
                     `;
                     chatBox.scrollTop = chatBox.scrollHeight;
+                    this._ttsAutoPlay(chatBox.querySelector('.ai-message:last-child .message-content'));
                     
                     this.showToast('success', '✅', 'AI 도움말이 생성되었습니다');
                 } catch (error) {
@@ -29567,7 +29839,11 @@ ${originalContent}`;
                     'gemini-3-flash-preview': { rpm: 5, tpm: 250000, rpd: 20 },
                     'gemini-2.5-flash': { rpm: 5, tpm: 250000, rpd: 20 },
                     'gemini-2.5-flash-lite': { rpm: 10, tpm: 250000, rpd: 20 },
-                    'gemini-3.1-pro-preview': { rpm: 0, tpm: 0, rpd: 0 }
+                    'gemini-3.1-pro-preview': { rpm: 0, tpm: 0, rpd: 0 },
+                    'gemini-3.8-flash-tts': { rpm: 3, tpm: 10000, rpd: 10 },
+                    'gemini-3.8-flash-lite-tts': { rpm: 3, tpm: 10000, rpd: 10 },
+                    'gemini-3.1-flash-tts-preview': { rpm: 3, tpm: 10000, rpd: 10 },
+                    'gemini-2.5-flash-preview-tts': { rpm: 3, tpm: 10000, rpd: 10 }
                 };
                 return limits[model] || { rpm: 0, tpm: 0, rpd: 0 };
             }
@@ -29753,6 +30029,10 @@ ${originalContent}`;
                         { id:'gemini-3.5-flash-lite',  name:'3.5 Lite',  rpd:500,  group:'lite' },
                         { id:'gemini-3.1-flash-lite',  name:'3.1 Lite',  rpd:500,  group:'lite' },
                         { id:'gemini-2.5-flash-lite',  name:'2.5 Lite',  rpd:20,   group:'lite' },
+                        { id:'gemini-3.8-flash-tts',          name:'3.8 TTS',      rpd:10, group:'tts' },
+                        { id:'gemini-3.8-flash-lite-tts',     name:'3.8 Lite TTS', rpd:10, group:'tts' },
+                        { id:'gemini-3.1-flash-tts-preview',  name:'3.1 TTS',      rpd:10, group:'tts' },
+                        { id:'gemini-2.5-flash-preview-tts',  name:'2.5 TTS',      rpd:10, group:'tts' },
                     ].filter(m => (mc[m.id]||0) > 0 || ['gemini-3.8-flash','gemini-3.5-flash-lite'].includes(m.id));
 
                     rpdSection = `
