@@ -4280,13 +4280,13 @@
             </div>
             </div>
 
-            <!-- 오늘 할 일 (업무별 현재 단계 통합) -->
+            <!-- 진행 중인 업무 (업무별 현재 단계 통합, 최근 작업순) -->
             <div class="sidebar-nav-sep">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                오늘 할 일
+                진행 중인 업무
             </div>
             <div id="todayTasksList" style="margin-bottom:4px;">
-                <div style="padding:12px 4px;text-align:center;color:var(--text-muted);font-size:0.8rem;">지금 해야 할 업무가 없습니다</div>
+                <div style="padding:12px 4px;text-align:center;color:var(--text-muted);font-size:0.8rem;">진행 중인 업무가 없습니다</div>
             </div>
             
         </div>
@@ -6355,7 +6355,7 @@
                 this.selectedProjectId = null;  // 선택된 업무 ID (사이드바 필터링용)
                 this.currentEditingWorkflowId = null;  // 편집 중인 워크플로우 ID
                 this.isReorderMode = false;  // 체크리스트 순서 변경 모드
-                this.todayTasksExpanded = false;  // 오늘 할 일 섹션 펼침 상태
+                this.todayTasksExpanded = false;  // 진행 중인 업무 섹션 펼침 상태
                 this._completedSectionOpen = true; // 완료된 업무 섹션 기본 펼침
                 this.focusMode = false;       // 포커스 모드 ON/OFF
                 this.focusedWorkflowId = null; // 포커스 중인 업무 ID
@@ -6980,6 +6980,8 @@
             // debounced 저장 (300ms 지연)
             saveData() {
                 this.hasUnsavedChanges = true;
+                // 포커스 화면에서 일어난 변경은 그 업무를 작업한 것으로 기록 (업무 열기 시점 기록도 함께 저장됨)
+                if (this.focusMode && this.focusedWorkflowId != null) this._touchWork(this.focusedWorkflowId, true);
                 // 기존 타이머가 있으면 취소
                 if (this.saveDataTimer) {
                     clearTimeout(this.saveDataTimer);
@@ -8652,7 +8654,7 @@
                 // 7. 페이지네이션 UI 추가
                 this.renderPagination(totalPages, totalItems, startIndex, endIndex);
                 
-                // 사이드바 오늘 할 일 · 마감 임박 업데이트
+                // 사이드바 진행 중인 업무 · 마감 임박 업데이트
                 this.displayTodayTasks();
                 this.displayUrgentWorks();
 
@@ -9238,8 +9240,9 @@
                 this.displayWorkflows();
             }
 
-            // 오늘 할 일 표시: 업무별로 "지금 체크해야 할 현재 단계"(하위 항목·건너뛴 항목 제외,
-            // 첫 번째 미완료 상위 항목)만 뽑아 하나의 목록으로 통합. 마감일 가까운 순, 기본 5개.
+            // 진행 중인 업무 표시: 업무별로 "지금 체크해야 할 현재 단계"(하위 항목·건너뛴 항목 제외,
+            // 첫 번째 미완료 상위 항목)만 뽑아 하나의 목록으로 통합. 최근 작업순, 기본 5개.
+            // (마감 긴급도는 바로 위 "마감 임박" 섹션이 마감순으로 보여주므로 여기서는 하던 일 이어 하기에 맞춤)
             displayTodayTasks() {
                 const container = document.getElementById('todayTasksList');
                 if (!container) return;
@@ -9264,17 +9267,19 @@
                 if (tasks.length === 0) {
                     container.innerHTML = `
                         <div style="padding:12px 4px;text-align:center;color:var(--text-muted);font-size:0.8rem;">
-                            지금 해야 할 업무가 없습니다
+                            진행 중인 업무가 없습니다
                         </div>
                     `;
                     return;
                 }
 
-                // 마감일 가까운 순 정렬 (기한 초과 먼저, 마감일 없으면 맨 뒤)
+                // 최근 작업순: 마지막으로 손댄 업무가 위로. 작업 기록이 없는 업무는 그 뒤에
+                // 마감일 가까운 순(기한 초과 먼저, 마감일 없으면 맨 뒤)
                 tasks.sort((a, b) => {
-                    const dA = this.calculateDaysLeft(a.work.deadline);
-                    const dB = this.calculateDaysLeft(b.work.deadline);
-                    return dA - dB;
+                    const tA = a.work.lastWorkedAt ? Date.parse(a.work.lastWorkedAt) || 0 : 0;
+                    const tB = b.work.lastWorkedAt ? Date.parse(b.work.lastWorkedAt) || 0 : 0;
+                    if (tA || tB) return tB - tA;
+                    return this.calculateDaysLeft(a.work.deadline) - this.calculateDaysLeft(b.work.deadline);
                 });
 
                 // 표시 개수 (기본 5개, 펼침 시 최대 15개)
@@ -9349,7 +9354,22 @@
                 container.innerHTML = tasksHTML + moreButton;
             }
 
-            // 오늘 할 일 펼치기/접기
+            // 업무에 실제로 손댄 시각 기록 — "진행 중인 업무" 최근 작업순 정렬용.
+            // (updatedAt은 저장할 때마다 모든 업무가 한꺼번에 갱신되어 작업 시각으로 쓸 수 없음)
+            // 업무 열기·체크/해제·포커스 화면에서의 편집 저장 시 호출된다.
+            // fromSave=true(포커스 화면 저장 시 자동 기록)는, 방금 다른 업무를 직접 작업한 경우(예: 수정 창에서
+            // 다른 업무 체크) 그 기록을 열려 있는 업무가 덮어쓰지 않도록 1.5초 동안 건너뛴다.
+            _touchWork(workflowId, fromSave = false) {
+                const w = workflowId != null && this.allData.workflows.find(x => x.id === workflowId);
+                if (!w) return;
+                const last = this._lastWorkTouch;
+                if (fromSave && last && last.id !== workflowId && Date.now() - last.at < 1500) return;
+                if (!fromSave) this._lastWorkTouch = { id: workflowId, at: Date.now() };
+                w.lastWorkedAt = new Date().toISOString();
+                this.displayTodayTasks();
+            }
+
+            // 진행 중인 업무 펼치기/접기
             toggleTodayTasks() {
                 this.todayTasksExpanded = !this.todayTasksExpanded;
                 this.displayTodayTasks();
@@ -9571,7 +9591,7 @@
                 return { overdue, dueToday, upcoming };
             }
 
-            // "오늘 할 일" 위젯과 동일 기준 — 진행 중인 업무 중 지금 처리해야 할 단계가 있는 업무 수
+            // "진행 중인 업무" 위젯과 동일 기준 — 진행 중인 업무 중 지금 처리해야 할 단계가 있는 업무 수
             getTodayTaskCount() {
                 return this.allData.workflows.filter(w => {
                     if (w.type === 'report' || w.isDeleted || w.isArchived || w.completedProcessed) return false;
@@ -9585,7 +9605,7 @@
                 }).length;
             }
 
-            // 마감일·오늘 할 일 알림 표시
+            // 마감일·진행 중인 업무 알림 표시
             // 알림 빈도(deadlineNotifyMode): 'daily'(하루 1회) / 'always'(프로그램 열 때마다) / 'off'(끄기)
             // OS 데스크톱 알림은 file:// 환경 등에서 신뢰할 수 없어 best-effort로만 시도하고,
             // 항상 동작하는 인앱 알림센터(fireInAppNotification)를 기본 채널로 사용한다.
@@ -9634,8 +9654,8 @@
                         };
                 }
                 return {
-                    text: `오늘 처리해야 할 업무가 ${todayTaskCount}건 있습니다. 확인해보세요.`,
-                    html: `오늘 처리해야 할 업무가 <b>${todayTaskCount}건</b> 있습니다. 확인해보세요.`
+                    text: `진행 중인 업무가 ${todayTaskCount}건 있습니다. 이어서 처리해보세요.`,
+                    html: `진행 중인 업무가 <b>${todayTaskCount}건</b> 있습니다. 이어서 처리해보세요.`
                 };
             }
 
@@ -10126,6 +10146,8 @@
                     this.selectProject(workflowId);
                     this.focusMode = true;
                     this.focusedWorkflowId = workflowId;
+                    this._touchWork(workflowId);  // 업무를 연 시각 기록
+                    this.saveData();
                     this.focusEditMode = editMode;
                     this.focusDragSrcIndex = null;
                     document.body.classList.add('focus-mode');
@@ -11240,6 +11262,7 @@
                     return;
                 }
                 if (this.guardReferenceLock(workflowId, '체크 변경')) return;
+                this._touchWork(workflowId);
 
                 const currentItem = workflow.checklist[itemIndex];
 
@@ -13600,6 +13623,7 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
             toggleEditChecklistItem(index, checked) {
                 const workflow = this.allData.workflows.find(w => w.id === this.currentEditingWorkflowId);
                 if (!workflow || !workflow.checklist) return;
+                this._touchWork(workflow.id);
                 
                 const item = workflow.checklist[index];
                 if (!item) return;
@@ -14732,6 +14756,7 @@ ${item.result.text}
                         if (!opts.keepState) {
                             wfCopy.completedProcessed = false;
                             delete wfCopy.completedDate;
+                            delete wfCopy.lastWorkedAt;
                             wfCopy.isArchived = false;
                         }
                         // 폴더 정보는 내보내지 않음 — 받는 쪽은 항상 미분류로 들어옴
