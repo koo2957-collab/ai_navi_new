@@ -7607,6 +7607,14 @@
                 return workflow.importedAt ? `${base} · ${fmtDate(workflow.importedAt, { short: true })} 가져옴` : base;
             }
 
+            // 기간 필터용 "목록에 들어온 날" — 가져온 업무는 생성일과 가져온 날 중 늦은 날 (새 Date 반환)
+            _workListDate(workflow) {
+                const created = this.parseWorkflowDate(workflow);
+                const imported = parseAnyDate(workflow.importedAt);
+                const d = created && imported ? (imported > created ? imported : created) : (imported || created);
+                return d ? new Date(d.getTime()) : null;
+            }
+
             // 업무 화면 정보 영역용: "생성 2026. 10. 3. 14:05 · 가져옴 10. 3."
             // 시각은 생성 시각이 기록된 업무(createdAt에 시각 포함)에서만 표시. 예전 업무는 저장 과정에서
             // createdAt이 나중에 채워진 경우가 있어, 화면 생성일(date)과 날짜가 같을 때만 시각을 믿는다.
@@ -8447,7 +8455,9 @@
                     
                     if (startDate) {
                         filteredNonFavoriteWorkflows = filteredNonFavoriteWorkflows.filter(w => {
-                            const createdDate = this.parseWorkflowDate(w);  // 한국 날짜 기준 생성일
+                            // 목록에 들어온 날 기준: 직접 만든 업무는 생성일, 가져온 업무는 생성일·가져온 날 중 늦은 날
+                            // (원본 생성일을 유지한 채 가져온 오래된 업무가 기간 필터에 걸려 목록에서 사라지지 않도록)
+                            const createdDate = this._workListDate(w);
                             if (!createdDate) return false;
                             createdDate.setHours(0, 0, 0, 0);
                             return createdDate >= startDate && createdDate <= endDate;
@@ -8840,7 +8850,7 @@
                                 <span class="wf-row-progress-pct" style="color:${barColor};">${progress}%</span>
                             </div>
                             <div class="wf-row-deadline" style="color:${dlColor};display:flex;align-items:center;justify-content:center;gap:3px;">${itemMarker}${dlText}</div>
-                            <div class="wf-row-date"${workflow.importedAt ? ` title="${fmtDate(workflow.importedAt)} 가져옴"` : ''}>${workflow.date || ''}</div>
+                            <div class="wf-row-date">${workflow.date || ''}${workflow.importedAt ? `<div style="font-size:0.66rem;line-height:1.3;opacity:0.85;">${fmtDate(workflow.importedAt, { short: true })} 가져옴</div>` : ''}</div>
                             <div style="width:20px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
                                 <button onclick="event.stopPropagation();app.toggleReference(${workflow.id});" title="${rowRefTitle}"
                                         style="border:none;background:transparent;cursor:pointer;padding:2px;display:flex;align-items:center;opacity:${rowIsReference ? '1' : '0.4'}"
