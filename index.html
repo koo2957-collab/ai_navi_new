@@ -7534,6 +7534,7 @@
                 
                 // 🔥 포커스 모드 리셋 (displayWorkflows 호출 없이)
                 if (this.focusMode) {
+                    this.ttsStop?.();  // 업무 화면을 벗어나면 읽던 음성 정지
                     this.focusMode = false;
                     this.focusedWorkflowId = null;
                 }
@@ -10246,6 +10247,7 @@
 
             // 심플 리스트: 포커스 모드 종료
             exitFocusMode() {
+                this.ttsStop?.();  // 업무 화면을 닫으면 업무절차·답변 읽기도 함께 정지
                 const returnToWFM = this._returnToWFMOnExit;
                 this._returnToWFMOnExit = false;
 
@@ -13661,97 +13663,11 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
                 }
             }
             
-            // 서식 파일 1개 처리 (수정 모달용) - 버튼/드래그 공용
+            // 서식 파일 1개 처리 (수정 모달용) — 옛 형식(item.formats) 저장은 중단하고 서식·문서함 저장·연결로 처리
             async addChecklistFormatFromFile(index, file) {
-                if (!file) return;
-                
-                const workflow = this.allData.workflows.find(w => w.id === this.currentEditingWorkflowId);
-                if (!workflow || !workflow.checklist) return;
-                
-                const item = workflow.checklist[index];
-                if (!item) return;
-                
-                // 고유 ID 보장
-                const itemId = this.ensureChecklistItemId(item);
-                
-                if (!item.formats) {
-                    item.formats = [];
-                }
-                
-                try {
-                    // 중복 검사: 같은 파일이 이미 있는지 확인 (이름과 크기로 판단)
-                    const existingFormat = item.formats.find(f => 
-                        f.name === file.name && f.size === file.size
-                    );
-                    
-                    if (existingFormat) {
-                        this.showToast('warning', '⚠️', `이미 같은 파일("${file.name}")이 첨부되어 있습니다.`);
-                        return;
-                    }
-                    
-                    // IndexedDB에 파일 저장 (고유 ID 기반 detailKey 사용)
-                    const detailKey = `${workflow.id}-${itemId}`;
-                    const fileData = {
-                        detailKey: detailKey,
-                        fileName: file.name,
-                        fileType: file.type,
-                        blob: file,
-                        uploaded: new Date().toISOString()
-                    };
-                    
-                    const fileId = await this.dbManager.saveFile('formFiles', fileData);
-                    
-                    const formatInfo = {
-                        id: fileId,  // IndexedDB ID
-                        name: file.name,
-                        type: file.type,
-                        size: file.size,
-                        uploaded: new Date().toLocaleString('ko-KR'),
-                        inIndexedDB: true,  // IndexedDB에 저장됨 표시
-                        storeName: 'formFiles'
-                    };
-                    
-                    // workflow.checklist[index].formats에 추가
-                    item.formats.push(formatInfo);
-                    
-                    // checklistDetails[detailKey].forms에도 추가하여 동기화 유지
-                    if (!this.checklistDetails[detailKey]) {
-                        this.checklistDetails[detailKey] = {
-                            details: '',
-                            forms: [],
-                            attachments: [],
-                            memo: '',
-                            law: '',
-                            result: ''
-                        };
-                    }
-                    
-                    // checklistDetails에도 중복 검사
-                    const existingDetailForm = this.checklistDetails[detailKey].forms.find(f => 
-                        f.id === fileId || (f.name === file.name && f.size === file.size)
-                    );
-                    
-                    if (!existingDetailForm) {
-                        this.checklistDetails[detailKey].forms.push({
-                            id: fileId,
-                            name: file.name,
-                            type: file.type,
-                            size: file.size,
-                            uploadDate: fileData.uploaded,
-                            inIndexedDB: true,
-                            storeName: 'formFiles'
-                        });
-                    }
-                    
-                    this.saveData();
-                    this.displayEditChecklist(workflow.checklist);
-                    this.showToast('success', '✅', '서식이 저장되었습니다');
-                } catch (error) {
-                    console.error('서식 저장 오류:', error);
-                    this.showToast('error', '❌', '서식 저장 실패: ' + error.message);
-                }
+                return this.addChecklistLinkedDocFromFile(index, file);
             }
-            
+
             // 서식 추가 (버튼 클릭용 - 수정 모달)
             async addChecklistFormat(index) {
                 const input = document.createElement('input');
@@ -23387,8 +23303,14 @@ ${aiPartnerCitationFirstRules}
                     return;
                 }
 
-                await this._autoBackupBeforeDocRepoMigration();
-                this.showToast('info', '📦', '서식·문서함으로 기존 첨부파일을 정리하는 중입니다...', 6000);
+                // 자동 백업 파일은 처음 대규모 정리(정리 기록이 없을 때) 한 번만 받는다.
+                // 이후 업무 복제·가져오기·백업 복원 등으로 생기는 소량의 옛 형식 서식은 같은 방식
+                // (내용 보존·중복 병합)으로 조용히 정리 — 예전엔 이때마다 백업 파일이 다시 다운로드됐다.
+                const firstMigration = !this.allData.documentRepoMigratedAt;
+                if (firstMigration) {
+                    await this._autoBackupBeforeDocRepoMigration();
+                    this.showToast('info', '📦', '서식·문서함으로 기존 첨부파일을 정리하는 중입니다...', 6000);
+                }
 
                 const folders = this._getDocumentRepoFolders();
                 const exampleFolder = folders.find(f => f.name === '예시공문');
@@ -23400,58 +23322,64 @@ ${aiPartnerCitationFirstRules}
                     for (const item of (wf.checklist || [])) {
                         if (!item.formats?.length) continue;
                         const linkedDocs = item.linkedDocs ? [...item.linkedDocs] : [];
+                        const failedFormats = [];  // 처리 중 오류가 난 파일 — 참조를 남겨 다음 실행 때 재시도
                         let migratedAny = false;
 
                         for (const format of item.formats) {
-                            let blob = null;
-                            if (format.id && format.inIndexedDB) {
-                                const fileData = await this.dbManager.getFile(format.storeName || 'formFiles', format.id);
-                                blob = fileData?.blob || null;
-                            } else if (format.file) {
-                                blob = format.file;
-                            }
-                            if (!blob) continue;
-
-                            const hash = await this.computeFileHash(blob);
-                            let docId = (hash && hashToDocId.get(hash)) || null;
-                            if (!docId) {
-                                const existing = await this.findDuplicateRepoDocument({ name: format.name, size: format.size }, hash);
-                                if (existing) {
-                                    docId = existing.id;
-                                    mergedDuplicates++;
-                                } else {
-                                    const isExample = /예시|서식례|작성례/.test(format.name || '') || /예시/.test(item.text || '');
-                                    const now = new Date().toISOString();
-                                    const docData = {
-                                        name: format.name, type: format.type, size: format.size, blob,
-                                        folderId: (isExample && exampleFolder) ? exampleFolder.id : (commonFolder ? commonFolder.id : null),
-                                        contentHash: hash,
-                                        uploadedAt: format.uploaded || now,
-                                        updatedAt: now,
-                                        tags: [], aiSummary: null, recommendedFor: null
-                                    };
-                                    docId = await this.dbManager.saveFile('repoDocuments', docData);
-                                    migratedDocs++;
+                            try {
+                                let blob = null;
+                                if (format.id && format.inIndexedDB) {
+                                    const fileData = await this.dbManager.getFile(format.storeName || 'formFiles', format.id);
+                                    blob = fileData?.blob || null;
+                                } else if (format.file) {
+                                    blob = format.file;
                                 }
-                                if (hash) hashToDocId.set(hash, docId);
-                            }
-                            if (!linkedDocs.includes(docId)) linkedDocs.push(docId);
-                            migratedAny = true;
+                                if (!blob) continue;
 
-                            // 내용이 이제 repoDocuments에 안전하게 보관됐으므로, formFiles에 있던 원본은
-                            // 더 이상 어디서도 참조하지 않는 고아가 되기 전에 바로 정리한다.
-                            // (예전엔 여기서 원본을 지우지 않아 저장공간이 이중으로 잡아먹혔음)
-                            if (format.id && format.inIndexedDB) {
-                                try { await this.dbManager.deleteFile(format.storeName || 'formFiles', format.id); } catch (e) {}
+                                const hash = await this.computeFileHash(blob);
+                                let docId = (hash && hashToDocId.get(hash)) || null;
+                                if (!docId) {
+                                    const existing = await this.findDuplicateRepoDocument({ name: format.name, size: format.size }, hash);
+                                    if (existing) {
+                                        docId = existing.id;
+                                        mergedDuplicates++;
+                                    } else {
+                                        const isExample = /예시|서식례|작성례/.test(format.name || '') || /예시/.test(item.text || '');
+                                        const now = new Date().toISOString();
+                                        const docData = {
+                                            name: format.name, type: format.type, size: format.size, blob,
+                                            folderId: (isExample && exampleFolder) ? exampleFolder.id : (commonFolder ? commonFolder.id : null),
+                                            contentHash: hash,
+                                            uploadedAt: format.uploaded || now,
+                                            updatedAt: now,
+                                            tags: [], aiSummary: null, recommendedFor: null
+                                        };
+                                        docId = await this.dbManager.saveFile('repoDocuments', docData);
+                                        migratedDocs++;
+                                    }
+                                    if (hash) hashToDocId.set(hash, docId);
+                                }
+                                if (!linkedDocs.includes(docId)) linkedDocs.push(docId);
+                                migratedAny = true;
+
+                                // 내용이 이제 repoDocuments에 안전하게 보관됐으므로, formFiles에 있던 원본은
+                                // 더 이상 어디서도 참조하지 않는 고아가 되기 전에 바로 정리한다.
+                                // (예전엔 여기서 원본을 지우지 않아 저장공간이 이중으로 잡아먹혔음)
+                                if (format.id && format.inIndexedDB) {
+                                    try { await this.dbManager.deleteFile(format.storeName || 'formFiles', format.id); } catch (e) {}
+                                }
+                            } catch (e) {
+                                console.warn('서식·문서함 정리: 파일 1개 처리 실패 — 다음 실행 때 재시도', format?.name, e);
+                                failedFormats.push(format);
                             }
                         }
 
-                        // formats는 처리 후 항상 비운다 — blob을 찾지 못한 항목은 이미 깨진 참조이므로
+                        // formats는 처리 후 비운다(처리 중 오류 난 파일만 남김) — blob을 찾지 못한 항목은 이미 깨진 참조이므로
                         // linkedDocs로도 옮길 수 없지만, 계속 남겨두면 다음 실행마다 똑같이 재시도되며
                         // 매번 백업 다운로드/토스트가 반복된다. 또한 이미 linkedDocs에 같은 파일이
                         // 있던 경우(중복 표시 버그)는 여기서 formats 쪽 잔여 항목이 제거되어 정리된다.
                         item.linkedDocs = linkedDocs;
-                        item.formats = []; // 새 구조(linkedDocs)로 전환 — 원본 blob은 formFiles에 그대로 보존됨
+                        item.formats = failedFormats; // 새 구조(linkedDocs)로 전환 — 오류 난 파일만 남김
                         if (migratedAny) migratedItems++;
                     }
                 }
@@ -23460,7 +23388,7 @@ ${aiPartnerCitationFirstRules}
                 this.saveData();
                 await this._loadRepoDocMetaCache();
 
-                if (migratedDocs > 0 || mergedDuplicates > 0) {
+                if (firstMigration && (migratedDocs > 0 || mergedDuplicates > 0)) {
                     this.showToast('success', '✅',
                         `서식·문서함 정리 완료 — 첨부파일 ${migratedDocs + mergedDuplicates}개 → 문서 ${migratedDocs}개 등록 (중복 ${mergedDuplicates}건 병합, 체크리스트 ${migratedItems}개 항목 전환). 백업 파일이 다운로드되었습니다.`,
                         14000);
@@ -25021,7 +24949,9 @@ ${aiPartnerCitationFirstRules}
                     }
 
                     await this.saveDataImmediate();
-                    
+                    // 가져온 업무의 옛 형식 서식을 바로 서식·문서함 연결로 전환 (다음 새로고침 때 정리·백업이 반복되지 않도록)
+                    await this.migrateAttachmentsToDocumentRepo();
+
                     // 🔥 스크롤 문제 해결: 가져오기 완료 후 body 스타일 최종 확인 및 복원
                     const finalOpenModals = document.querySelectorAll('.modal.show');
                     if (finalOpenModals.length === 0) {
@@ -27320,96 +27250,9 @@ ${aiPartnerCitationFirstRules}
                 inputEl.value = '';
             }
 
-            // 서식 파일 1개 처리 (메인 화면용) - 버튼/드래그 공용
+            // 서식 파일 1개 처리 (메인 화면용) — 옛 형식(item.formats) 저장은 중단하고 서식·문서함 저장·연결로 처리
             async addMainChecklistFormatFromFile(workflowId, index, file) {
-                if (!file) return;
-                
-                const workflow = this.allData.workflows.find(w => w.id === workflowId);
-                if (!workflow || !workflow.checklist) return;
-                
-                const item = workflow.checklist[index];
-                if (!item) return;
-                
-                // 고유 ID 보장
-                const itemId = this.ensureChecklistItemId(item);
-                
-                if (!item.formats) {
-                    item.formats = [];
-                }
-                
-                try {
-                    // 중복 검사: 같은 파일이 이미 있는지 확인 (이름과 크기로 판단)
-                    const existingFormat = item.formats.find(f => 
-                        f.name === file.name && f.size === file.size
-                    );
-                    
-                    if (existingFormat) {
-                        this.showToast('warning', '⚠️', `이미 같은 파일("${file.name}")이 첨부되어 있습니다.`);
-                        return;
-                    }
-                    
-                    // IndexedDB에 파일 저장 (고유 ID 기반 detailKey 사용)
-                    const detailKey = `${workflow.id}-${itemId}`;
-                    const fileData = {
-                        detailKey: detailKey,
-                        fileName: file.name,
-                        fileType: file.type,
-                        blob: file,
-                        uploaded: new Date().toISOString()
-                    };
-                    
-                    const fileId = await this.dbManager.saveFile('formFiles', fileData);
-                    
-                    const formatInfo = {
-                        id: fileId,  // IndexedDB ID
-                        name: file.name,
-                        type: file.type,
-                        size: file.size,
-                        uploaded: new Date().toLocaleString('ko-KR'),
-                        inIndexedDB: true,  // IndexedDB에 저장됨 표시
-                        storeName: 'formFiles'
-                    };
-                    
-                    // workflow.checklist[index].formats에 추가
-                    item.formats.push(formatInfo);
-                    
-                    // checklistDetails[detailKey].forms에도 추가하여 동기화 유지
-                    if (!this.checklistDetails[detailKey]) {
-                        this.checklistDetails[detailKey] = {
-                            details: '',
-                            forms: [],
-                            attachments: [],
-                            memo: '',
-                            law: '',
-                            result: ''
-                        };
-                    }
-                    
-                    // checklistDetails에도 중복 검사
-                    const existingDetailForm = this.checklistDetails[detailKey].forms.find(f => 
-                        f.id === fileId || (f.name === file.name && f.size === file.size)
-                    );
-                    
-                    if (!existingDetailForm) {
-                        this.checklistDetails[detailKey].forms.push({
-                            id: fileId,
-                            name: file.name,
-                            type: file.type,
-                            size: file.size,
-                            uploadDate: fileData.uploaded,
-                            inIndexedDB: true,
-                            storeName: 'formFiles'
-                        });
-                    }
-                    
-                    this.saveData();
-                    this.displayWorkflows();
-                    this.refreshChecklistFormatsList(workflowId, index);
-                    this.showToast('success', '✅', '서식이 저장되었습니다');
-                } catch (error) {
-                    console.error('서식 저장 오류:', error);
-                    this.showToast('error', '❌', '서식 저장 실패: ' + error.message);
-                }
+                return this.addMainChecklistLinkedDocFromFile(workflowId, index, file);
             }
 
             // 서식 제거 (메인)
@@ -31354,6 +31197,8 @@ ${originalContent}`;
                     // 메모리에도 추가
                     this.allData.workflows.unshift(duplicate);
                     await this.saveDataImmediate();
+                    // 원본의 옛 형식 서식이 복사됐다면 바로 서식·문서함 연결로 전환 (다음 새로고침 때 정리·백업이 반복되지 않도록)
+                    await this.migrateAttachmentsToDocumentRepo();
                     
                     // 새 업무 강조 및 이동 설정
                     this.lastCreatedWorkflowId = newId;
