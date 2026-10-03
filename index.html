@@ -5613,6 +5613,82 @@
     </div>
 
     <script>
+        // ── 날짜·시각 공통 함수 (한국 시간 기준) ─────────────────────────────
+        // toISOString()은 세계 표준시(UTC) 기준이라 한국 시간 오전 0~9시에는 전날 날짜가 나온다.
+        // 날짜 문자열은 아래 함수로 만들고, 화면 표기는 공문서 방식(2026. 10. 3. / 14:05, 24시각제)으로 통일한다.
+        const WEEKDAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
+        const pad2 = n => String(n).padStart(2, '0');
+
+        // 한국 시간 기준 'YYYY-MM-DD'
+        function localDateStr(d = new Date()) {
+            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        }
+
+        // 저장된 여러 날짜 형식을 Date로 변환 (읽을 수 없으면 null)
+        // - 'YYYY-MM-DD'(날짜만): 한국 날짜 그대로 (UTC 자정으로 해석하지 않음)
+        // - '2026. 10. 3.' / '2026. 10. 3. 오전 10:59:30' / '2026. 10. 3. 14:05': 예전 화면 표기 그대로 저장된 값
+        // - ISO('2026-10-03T05:00:00.000Z') 등 그 밖의 형식
+        function parseAnyDate(v) {
+            if (v == null || v === '') return null;
+            if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+            if (typeof v === 'number') { const d = new Date(v); return isNaN(d.getTime()) ? null : d; }
+            const s = String(v).trim();
+            let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+            m = s.match(/^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?(?:\s*(오전|오후|AM|PM)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/i);
+            if (m) {
+                let h = m[5] ? +m[5] : 0;
+                if (m[4] && /오후|PM/i.test(m[4]) && h < 12) h += 12;
+                if (m[4] && /오전|AM/i.test(m[4]) && h === 12) h = 0;
+                return new Date(+m[1], +m[2] - 1, +m[3], h, m[6] ? +m[6] : 0, m[7] ? +m[7] : 0);
+            }
+            const d = new Date(s);
+            return isNaN(d.getTime()) ? null : d;
+        }
+
+        // 정렬용 밀리초 (읽을 수 없으면 0)
+        function dateMs(v) {
+            const d = parseAnyDate(v);
+            return d ? d.getTime() : 0;
+        }
+
+        // 2026. 10. 3. — short: 올해면 연도 생략(10. 3.), weekday: 요일 추가(10. 3.(금))
+        function fmtDate(v, { short = false, weekday = false } = {}) {
+            const d = parseAnyDate(v);
+            if (!d) return '';
+            const md = `${d.getMonth() + 1}. ${d.getDate()}.`;
+            const body = short && d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}. ${md}`;
+            return weekday ? `${body}(${WEEKDAYS_KO[d.getDay()]})` : body;
+        }
+
+        // 14:05 (24시각제)
+        function fmtTime(v) {
+            const d = parseAnyDate(v);
+            return d ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}` : '';
+        }
+
+        // 2026. 10. 3. 14:05
+        function fmtDateTime(v, opts) {
+            const d = parseAnyDate(v);
+            return d ? `${fmtDate(d, opts)} ${fmtTime(d)}` : '';
+        }
+
+        // 방금 / 5분 전 / 3시간 전 / 어제 / 4일 전 / 10. 3.
+        function fmtRelative(v) {
+            const d = parseAnyDate(v);
+            if (!d) return '';
+            const min = Math.floor((Date.now() - d.getTime()) / 60000);
+            if (min < 1) return '방금';
+            if (min < 60) return `${min}분 전`;
+            if (min < 24 * 60) return `${Math.floor(min / 60)}시간 전`;
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const day = new Date(d); day.setHours(0, 0, 0, 0);
+            const days = Math.round((today - day) / 86400000);
+            if (days === 1) return '어제';
+            if (days < 7) return `${days}일 전`;
+            return fmtDate(d, { short: true });
+        }
+
         // IndexedDB 관리 클래스
         class IndexedDBManager {
             constructor() {
@@ -7524,6 +7600,30 @@
                 }).join('');
             }
 
+            // ── 업무 날짜 표시 ──
+            // 화면에 보이는 생성일 + (가져온 업무면) 가져온 날
+            _workDateLabel(workflow) {
+                const base = workflow.date || fmtDate(this.parseWorkflowDate(workflow));
+                return workflow.importedAt ? `${base} · ${fmtDate(workflow.importedAt, { short: true })} 가져옴` : base;
+            }
+
+            // 업무 화면 정보 영역용: "생성 2026. 10. 3. 14:05 · 가져옴 10. 3."
+            // 시각은 생성 시각이 기록된 업무(createdAt에 시각 포함)에서만 표시. 예전 업무는 저장 과정에서
+            // createdAt이 나중에 채워진 경우가 있어, 화면 생성일(date)과 날짜가 같을 때만 시각을 믿는다.
+            _workDatesText(workflow) {
+                const created = parseAnyDate(workflow.createdAt);
+                const shown = parseAnyDate(workflow.date);
+                let createdText = workflow.date || fmtDate(this.parseWorkflowDate(workflow));
+                if (created && typeof workflow.createdAt === 'string' && workflow.createdAt.includes('T')
+                    && (!shown || localDateStr(shown) === localDateStr(created))) {
+                    createdText = fmtDateTime(created);
+                }
+                const parts = [];
+                if (createdText) parts.push(`생성 ${createdText}`);
+                if (workflow.importedAt) parts.push(`가져옴 ${fmtDate(workflow.importedAt, { short: true })}`);
+                return parts.join(' · ');
+            }
+
             // 업무 상세 표시
             async showProjectDetail(workflowId, options = {}) {
                 
@@ -7625,7 +7725,7 @@
                                 </span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap;">
-                                <span style="font-size: 0.9rem; color: var(--text-gray);">${workflow.date}</span>
+                                <span style="font-size: 0.9rem; color: var(--text-gray);">${this._workDateLabel(workflow)}</span>
                                 ${isPackage
                                     ? `<button onclick="app.moveWorkflowToFolder(${workflow.id})"
                                         title="폴더 변경"
@@ -8191,6 +8291,7 @@
                                 <div class="fap-progress-bar-fill" style="width:${progress}%;"></div>
                             </div>
                             <div class="fap-progress-text">${progress}% 완료 &nbsp;·&nbsp; ${completedCount}/${totalCount} 항목</div>
+                            <div class="fap-progress-text" style="margin-top:2px;">${this._workDatesText(workflow)}</div>
                             ${deadlineHtml}
                             <div style="border-top:1px solid var(--border-subtle);margin:14px 0 10px;"></div>
                             <button class="fap-btn" onclick="app.enterFocusEditMode()">체크리스트 편집</button>
@@ -8225,7 +8326,7 @@
                                             onblur="app.saveFocusTitle(${workflow.id}, this.value)"
                                             onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
                                         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                            <span style="font-size: 0.77rem; color: var(--text-muted); font-variant-numeric: tabular-nums;">${workflow.date}</span>
+                                            <span style="font-size: 0.77rem; color: var(--text-muted); font-variant-numeric: tabular-nums;">${this._workDateLabel(workflow)}</span>
                                             <div style="display: flex; gap: 5px; margin-left: 4px;">
                                                 <button id="focus-btn-content-${workflow.id}"
                                                         onclick="app.focusToggleSubPanel(${workflow.id}, 'content')"
@@ -8297,7 +8398,7 @@
                 if (this.currentFilterMode === 'done') {
                     // 완료됨 탭: completedProcessed 업무만 표시
                     allWorkflows = _base.filter(w => w.completedProcessed)
-                        .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
+                        .sort((a, b) => dateMs(b.completedAt) - dateMs(a.completedAt));
                 } else if (this.currentFilterMode === 'reference') {
                     // 레퍼런스 탭: 명시적으로 레퍼런스 표시한 업무만 (폴더 배정과 무관, completedProcessed 제외)
                     allWorkflows = _base.filter(w => !w.completedProcessed && w.isReference);
@@ -8346,7 +8447,8 @@
                     
                     if (startDate) {
                         filteredNonFavoriteWorkflows = filteredNonFavoriteWorkflows.filter(w => {
-                            const createdDate = w.createdAt ? new Date(w.createdAt) : new Date(w.date);
+                            const createdDate = this.parseWorkflowDate(w);  // 한국 날짜 기준 생성일
+                            if (!createdDate) return false;
                             createdDate.setHours(0, 0, 0, 0);
                             return createdDate >= startDate && createdDate <= endDate;
                         });
@@ -8382,13 +8484,13 @@
                 // latest: 가장 최근에 "생성"한 순서 (createdAt -> date 순으로 사용)
                 if (this.currentSortMethod === 'latest') {
                     filteredFavoriteWorkflows.sort((a, b) => {
-                        const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-                        const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+                        const dateA = this.parseWorkflowDate(a) || 0;
+                        const dateB = this.parseWorkflowDate(b) || 0;
                         return dateB - dateA;
                     });
                     filteredNonFavoriteWorkflows.sort((a, b) => {
-                        const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-                        const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+                        const dateA = this.parseWorkflowDate(a) || 0;
+                        const dateB = this.parseWorkflowDate(b) || 0;
                         return dateB - dateA;
                     });
                 } else if (this.currentSortMethod === 'import') {
@@ -8397,8 +8499,8 @@
                         const importA = a.importedAt ? new Date(a.importedAt).getTime() : 0;
                         const importB = b.importedAt ? new Date(b.importedAt).getTime() : 0;
                         if (importA === 0 && importB === 0) {
-                            const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-                            const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+                            const dateA = this.parseWorkflowDate(a) || 0;
+                            const dateB = this.parseWorkflowDate(b) || 0;
                             return dateB - dateA;
                         }
                         return importB - importA;
@@ -8407,8 +8509,8 @@
                         const importA = a.importedAt ? new Date(a.importedAt).getTime() : 0;
                         const importB = b.importedAt ? new Date(b.importedAt).getTime() : 0;
                         if (importA === 0 && importB === 0) {
-                            const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-                            const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+                            const dateA = this.parseWorkflowDate(a) || 0;
+                            const dateB = this.parseWorkflowDate(b) || 0;
                             return dateB - dateA;
                         }
                         return importB - importA;
@@ -8426,13 +8528,13 @@
                     });
                 } else if (this.currentSortMethod === 'oldest') {
                     filteredFavoriteWorkflows.sort((a, b) => {
-                        const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-                        const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+                        const dateA = this.parseWorkflowDate(a) || 0;
+                        const dateB = this.parseWorkflowDate(b) || 0;
                         return dateA - dateB;
                     });
                     filteredNonFavoriteWorkflows.sort((a, b) => {
-                        const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-                        const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+                        const dateA = this.parseWorkflowDate(a) || 0;
+                        const dateB = this.parseWorkflowDate(b) || 0;
                         return dateA - dateB;
                     });
                 } else if (this.currentSortMethod === 'title') {
@@ -8644,7 +8746,7 @@
 
                             <!-- 날짜 -->
                             <div style="font-size:0.71rem;color:var(--text-muted);flex-shrink:0;">
-                                ${workflow.date}
+                                ${this._workDateLabel(workflow)}
                             </div>
                         </div>
                     `;
@@ -8738,7 +8840,7 @@
                                 <span class="wf-row-progress-pct" style="color:${barColor};">${progress}%</span>
                             </div>
                             <div class="wf-row-deadline" style="color:${dlColor};display:flex;align-items:center;justify-content:center;gap:3px;">${itemMarker}${dlText}</div>
-                            <div class="wf-row-date">${workflow.date || ''}</div>
+                            <div class="wf-row-date"${workflow.importedAt ? ` title="${fmtDate(workflow.importedAt)} 가져옴"` : ''}>${workflow.date || ''}</div>
                             <div style="width:20px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
                                 <button onclick="event.stopPropagation();app.toggleReference(${workflow.id});" title="${rowRefTitle}"
                                         style="border:none;background:transparent;cursor:pointer;padding:2px;display:flex;align-items:center;opacity:${rowIsReference ? '1' : '0.4'}"
@@ -9037,7 +9139,7 @@
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                                             <div style="flex:1;min-width:0;">
                                                 <div style="font-size:0.83rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(m.name)}</div>
-                                                <div style="font-size:0.71rem;color:var(--text-muted);">${this._formatFileSize(m.size)} · ${new Date(m.uploadedAt).toLocaleDateString('ko-KR')}</div>
+                                                <div style="font-size:0.71rem;color:var(--text-muted);">${this._formatFileSize(m.size)} · ${fmtDate(m.uploadedAt)}</div>
                                             </div>
                                             ${this.canPreview(m.name) ? `<button class="btn btn-small btn-secondary" style="flex-shrink:0;" onclick="app.previewLibraryFile(${m.id})">보기</button>` : ''}
                                             <button class="btn btn-small" style="background:#ef4444;color:white;flex-shrink:0;" onclick="app.unlinkLibraryFile(${workflow.id},${m.id})">해제</button>
@@ -9325,10 +9427,13 @@
                              onmouseout="this.style.background='var(--white)'">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px;">
                                 <div style="font-size:0.78rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">${this.escapeHtml(work.title)}</div>
-                                <span style="font-size:0.7rem;font-weight:700;color:${dayColor};white-space:nowrap;flex-shrink:0;">${dayText}</span>
+                                <span style="font-size:0.7rem;font-weight:700;color:${dayColor};white-space:nowrap;flex-shrink:0;"${work.deadline ? ` title="마감 ${fmtDate(work.deadline, { weekday: true })}"` : ''}>${dayText}</span>
                             </div>
-                            <div style="font-size:0.76rem;color:var(--text-secondary,#475569);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                                <span style="color:#8b5cf6;font-weight:700;">▸</span> ${this.escapeHtml(currentText)}
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <div style="flex:1;min-width:0;font-size:0.76rem;color:var(--text-secondary,#475569);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                                    <span style="color:#8b5cf6;font-weight:700;">▸</span> ${this.escapeHtml(currentText)}
+                                </div>
+                                ${work.lastWorkedAt ? `<span style="font-size:0.68rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0;" title="마지막 작업 ${fmtDateTime(work.lastWorkedAt)}">${fmtRelative(work.lastWorkedAt)}</span>` : ''}
                             </div>
                         </div>
                     `;
@@ -9613,7 +9718,7 @@
             checkDeadlineNotifications() {
                 const mode = localStorage.getItem('deadlineNotifyMode') || 'daily';
                 if (mode === 'off') return;
-                const todayStr = new Date().toISOString().slice(0, 10);
+                const todayStr = localDateStr();
                 if (mode === 'daily' && localStorage.getItem('lastDeadlineNotifyDate') === todayStr) return;
 
                 const { overdue, dueToday, upcoming } = this.getUrgentDeadlineSummary();
@@ -9843,7 +9948,7 @@
                 const typeColors = { success: '#10b981', error: '#ef4444', warning: '#f59e0b', info: 'var(--accent)' };
                 list.innerHTML = this.notifyLog.map(n => {
                     const d = new Date(n.ts);
-                    const timeStr = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                    const timeStr = localDateStr(d) === localDateStr() ? fmtTime(d) : fmtDateTime(d, { short: true });  // 오늘: 14:05, 이전: 10. 2. 14:05
                     const barColor = typeColors[n.type] || typeColors.info;
                     return `<div style="position:relative;padding:9px 28px 9px 11px;border-bottom:1px solid var(--border-subtle);border-left:3px solid ${barColor};${n.read ? '' : 'background:color-mix(in srgb, var(--accent) 8%, var(--white));'}">
                         <button onclick="event.stopPropagation();app.dismissNotifyLogItem('${n.id}')" title="이 알림 지우기"
@@ -9975,7 +10080,7 @@
                 const overdue = !lastBackup || (Date.now() - new Date(lastBackup).getTime()) > REMINDER_DAYS * 86400000;
                 if (!overdue) return;
 
-                const todayStr = new Date().toISOString().slice(0, 10);
+                const todayStr = localDateStr();
                 if (localStorage.getItem('backupReminderShownDate') === todayStr) return;
                 localStorage.setItem('backupReminderShownDate', todayStr);
 
@@ -10074,7 +10179,7 @@
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `업무목록_${new Date().toISOString().slice(0, 10)}.csv`;
+                a.download = `업무목록_${localDateStr()}.csv`;
                 a.click();
                 URL.revokeObjectURL(url);
 
@@ -10394,7 +10499,7 @@
                 const item = workflow.checklist[index];
                 item.completed = !this.normalizeCompleted(item);
                 if (item.completed) {
-                    item.completedAt = new Date().toLocaleDateString('ko-KR');
+                    item.completedAt = new Date().toISOString();
                 } else {
                     item.completedAt = null;
                 }
@@ -10927,7 +11032,7 @@
                                         ${isSkipped ? '<span style="font-size:0.7rem;color:var(--text-muted);padding:1px 6px;border-radius:4px;border:1px solid var(--border-light);">건너뜀</span>' : ''}
                                         ${isCompleted && !isSkipped ? '<span style="font-size:0.7rem;color:#10b981;padding:1px 6px;border-radius:4px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);font-weight:600;">완료</span>' : ''}
                                         ${isCompleted && item.branchOnly && !isSkipped ? '<span style="font-size:0.7rem;color:#8b5cf6;padding:1px 6px;border-radius:4px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);font-weight:600;" title="분기 처리로 완료됨 (실제 작업 내용 아님)">🔀 분기 처리</span>' : ''}
-                                        ${item.completedAt ? `<span style="font-size:0.7rem;color:var(--text-muted);letter-spacing:0.01em;">${item.completedAt}</span>` : ''}
+                                        ${item.completedAt ? `<span style="font-size:0.7rem;color:var(--text-muted);letter-spacing:0.01em;">${fmtDateTime(item.completedAt, { short: true, weekday: true }) || item.completedAt}</span>` : ''}
                                     </div>
                                 </div>
                                 <button onclick="app.closeChecklistItemModal()" class="close-btn">✕</button>
@@ -11117,8 +11222,8 @@
                     const today = new Date();
                     const oneMonthAgo = new Date();
                     oneMonthAgo.setMonth(today.getMonth() - 1);
-                    startDateInput.value = oneMonthAgo.toISOString().split('T')[0];
-                    endDateInput.value = today.toISOString().split('T')[0];
+                    startDateInput.value = localDateStr(oneMonthAgo);
+                    endDateInput.value = localDateStr(today);
                 }
             }
             
@@ -11285,7 +11390,7 @@
 
                 // 완료일시 기록 및 완료 후 처리
                 if (currentItem.completed) {
-                    currentItem.completedAt = new Date().toLocaleString('ko-KR');
+                    currentItem.completedAt = new Date().toISOString();
                     // 전체 완료 알림 등 체크 완료 후 처리
                     setTimeout(() => this._onChecklistItemCompleted(workflowId), 500);
                     // 항목 완료 시 해당 체크리스트 자동으로 닫기
@@ -12268,12 +12373,15 @@ ${writtenSection}${docSection}
             // 업무 날짜 파싱 헬퍼 함수 (한국어 형식 지원)
             parseWorkflowDate(workflow) {
                 try {
-                    // createdAt 우선 사용
+                    // createdAt 우선 사용. 단, 날짜만 있는 예전 값은 세계 표준시(UTC) 기준으로 만들어져
+                    // 한국 시간 오전 0~9시 생성분이 하루 앞당겨져 있을 수 있으므로 화면 생성일(date)을 우선한다.
                     if (workflow.createdAt) {
-                        const date = new Date(workflow.createdAt);
-                        if (!isNaN(date.getTime())) {
-                            return date;
+                        if (/^\d{4}-\d{2}-\d{2}$/.test(workflow.createdAt) && workflow.date) {
+                            const shown = parseAnyDate(workflow.date);
+                            if (shown) return shown;
                         }
+                        const date = parseAnyDate(workflow.createdAt);
+                        if (date) return date;
                     }
                     // date가 있으면 파싱
                     if (workflow.date) {
@@ -12346,7 +12454,7 @@ ${writtenSection}${docSection}
                     if (workflow.checklist && workflow.checklist.length > 0) {
                         workflow.checklist.forEach((item, index) => {
                             const completed = this.normalizeCompleted(item);
-                            const completedAt = item.completedAt ? new Date(item.completedAt) : null;
+                            const completedAt = parseAnyDate(item.completedAt);  // 예전 "오전/오후" 표기도 읽음
                             
                             checklistItems.push({
                                 text: item.text,
@@ -12406,15 +12514,15 @@ ${writtenSection}${docSection}
                         dataSummary += `\n[업무 ${idx + 1}]\n`;
                         dataSummary += `제목: ${w.title}\n`;
                         if (w.content) dataSummary += `내용: ${w.content.substring(0, 200)}\n`;
-                        if (w.date) dataSummary += `생성일: ${w.date.toLocaleDateString('ko-KR')}\n`;
-                        if (w.deadline) dataSummary += `마감일: ${w.deadline.toLocaleDateString('ko-KR')}\n`;
+                        if (w.date) dataSummary += `생성일: ${fmtDate(w.date)}\n`;
+                        if (w.deadline) dataSummary += `마감일: ${fmtDate(w.deadline)}\n`;
                         if (w.checklist && w.checklist.length > 0) {
                             // 완료된 항목
                             const completedItems = w.checklist.filter(item => item.completed);
                             if (completedItems.length > 0) {
                                 dataSummary += `[완료된 체크리스트 항목]\n`;
                                 completedItems.forEach((item, i) => {
-                                    const dateStr = item.completedAt ? ` (완료일: ${item.completedAt.toLocaleDateString('ko-KR')})` : '';
+                                    const dateStr = item.completedAt ? ` (완료일: ${fmtDate(item.completedAt)})` : '';
                                     dataSummary += `  ${i + 1}. ${item.text}${dateStr}\n`;
                                 });
                             }
@@ -12841,7 +12949,7 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
                                 
                                 ${isCompleted && item.completedAt ? `
                                     <div class="checklist-completion-date">
-                                        ⏰ 완료일시: ${item.completedAt}
+                                        ⏰ 완료일시: ${fmtDateTime(item.completedAt, { weekday: true }) || item.completedAt}
                                     </div>
                                 ` : ''}
                                 
@@ -13050,7 +13158,7 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
                 if (allResolved) {
                     if (!this.normalizeCompleted(parent)) {
                         parent.completed = true;
-                        parent.completedAt = new Date().toLocaleString('ko-KR');
+                        parent.completedAt = new Date().toISOString();
                         parent.completedViaSubItems = true;
                         if (parent.expanded) parent.expanded = false;
                         setTimeout(() => this._onChecklistItemCompleted(workflow.id), 500);
@@ -13632,7 +13740,7 @@ ${GOVERNMENT_DOCUMENT_GUIDELINES}
                 
                 item.completed = checked;
                 if (checked) {
-                    item.completedAt = new Date().toLocaleString('ko-KR');
+                    item.completedAt = new Date().toISOString();
                     // 전체 완료 알림 등 체크 완료 후 처리 (수정 창은 건너뛴 항목도 미완료로 셈 — 기존 동작 유지)
                     setTimeout(() => this._onChecklistItemCompleted(this.currentEditingWorkflowId, false), 500);
                 } else {
@@ -14722,7 +14830,7 @@ ${item.result.text}
 
                     const jsonStr = JSON.stringify(packageData, null, 2);
                     const blob = new Blob([jsonStr], { type: 'application/json' });
-                    const dateStr = new Date().toISOString().slice(0, 10);
+                    const dateStr = localDateStr();
                     const fileName = workflows.length === 1
                         ? `업무_${sanitizeFileName(workflows[0].title || '업무', 60)}_${dateStr}.json`
                         : `업무묶음_${workflows.length}개_${dateStr}.json`;
@@ -15141,7 +15249,7 @@ ${item.result.text}
                     const blob = new Blob([jsonStr], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    const dateStr = new Date().toISOString().slice(0, 10);
+                    const dateStr = localDateStr();
                     const sanitizedName = sanitizeFileName(workflow.title || '업무', 80);
                     const fileName = `업무_${sanitizedName}_${dateStr}.json`;
                     
@@ -15216,7 +15324,7 @@ ${item.result.text}
 
                     const jsonStr = JSON.stringify(packageData, null, 2);
                     const blob = new Blob([jsonStr], { type: 'application/json' });
-                    const dateStr = new Date().toISOString().slice(0, 10);
+                    const dateStr = localDateStr();
                     const sanitizedName = sanitizeFileName(template.name || '업무', 80);
                     const saved = await this._saveFileWithPicker(blob, `업무_${sanitizedName}_${dateStr}.json`);
                     if (!saved) return;
@@ -15483,7 +15591,7 @@ ${item.result.text}
                 if (!workflow || !workflow.documents || !workflow.documents[docIndex]) return;
                 
                 const doc = workflow.documents[docIndex];
-                const fileName = `${doc.title}_${doc.type}_${new Date(doc.createdAt).toISOString().split('T')[0]}.html`;
+                const fileName = `${doc.title}_${doc.type}_${localDateStr(parseAnyDate(doc.createdAt) || new Date())}.html`;
                 
                 // 마크다운을 HTML로 변환
                 const formattedContent = this.formatAIResponse(doc.content);
@@ -15565,7 +15673,7 @@ ${item.result.text}
     </div>
     <div class="footer">
         <p>※ 본 문서는 AI가 생성한 초안입니다. 실제 사용 전 반드시 검토 및 수정이 필요합니다.</p>
-        <p>유형: ${this.escapeHtml(doc.scopeText || doc.dept || '문서 유형 미지정')} | 작성일: ${new Date(doc.createdAt).toLocaleDateString('ko-KR')}</p>
+        <p>유형: ${this.escapeHtml(doc.scopeText || doc.dept || '문서 유형 미지정')} | 작성일: ${fmtDate(doc.createdAt)}</p>
         <p>행정업무 AI 에이전트 시스템 v5.1</p>
     </div>
 </body>
@@ -16454,7 +16562,7 @@ ${item.result.text}
                         .sort((a, b) => b.id - a.id);
                 } else if (this.wfmSelectedFolder === '__done__') {
                     filtered = this.allData.workflows.filter(w => w.type !== 'report' && !w.isDeleted && !w.isArchived && w.completedProcessed)
-                        .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
+                        .sort((a, b) => dateMs(b.completedAt) - dateMs(a.completedAt));
                 } else {
                     filtered = allWorkflows;
                     if (this.wfmSelectedFolder === '__none__') {
@@ -17314,22 +17422,18 @@ ${item.result.text}
                 
                 // 최신순으로 정렬
                 allReports.sort((a, b) => {
-                    const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-                    const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+                    const dateA = this.parseWorkflowDate(a) || 0;
+                    const dateB = this.parseWorkflowDate(b) || 0;
                     return dateB - dateA;
                 });
                 
                 // 보고서 카드 렌더링
                 listEl.innerHTML = allReports.map(report => {
                     const reportId = report.id;
-                    const date = report.createdAt ? new Date(report.createdAt) : new Date(report.date);
-                    const dateStr = date.toLocaleDateString('ko-KR', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    });
+                    const date = this.parseWorkflowDate(report) || new Date();
+                    // 생성 시각이 기록된 보고서만 시각까지 표시 (날짜만 있는 예전 값은 날짜만)
+                    const dateStr = typeof report.createdAt === 'string' && report.createdAt.includes('T')
+                        ? fmtDateTime(report.createdAt) : fmtDate(date);
                     
                     // 보고서 유형 색상
                     let typeColor = '#f59e0b';
@@ -17419,7 +17523,7 @@ ${item.result.text}
                 const report = this.allData.workflows.find(w => w.id === reportId && w.type === 'report');
                 if (!report) return;
                 
-                const fileName = `${report.title}_${new Date(report.date || report.createdAt).toISOString().split('T')[0]}.html`;
+                const fileName = `${report.title}_${localDateStr(parseAnyDate(report.date || report.createdAt) || new Date())}.html`;
                 
                 // 마크다운을 HTML로 변환
                 const formattedContent = this.formatAIResponse(report.content);
@@ -17501,7 +17605,7 @@ ${item.result.text}
     </div>
     <div class="footer">
         <p>※ 본 문서는 AI가 생성한 초안입니다. 실제 사용 전 반드시 검토 및 수정이 필요합니다.</p>
-        <p>작성일: ${new Date(report.date || report.createdAt).toLocaleDateString('ko-KR')}</p>
+        <p>작성일: ${fmtDate(report.date || report.createdAt)}</p>
         <p>행정업무 AI 에이전트 시스템 v5.1</p>
     </div>
 </body>
@@ -17814,7 +17918,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
 
                 const workflow = this.allData.workflows.find(w => w.id === this.currentWorkflowForDoc);
                 const docTitle = workflow ? workflow.title : '공문 초안';
-                const fileName = `${docTitle}_공문초안_${new Date().toISOString().split('T')[0]}.html`;
+                const fileName = `${docTitle}_공문초안_${localDateStr()}.html`;
                 
                 // 마크다운을 HTML로 변환
                 const formattedContent = this.formatAIResponse(this.generatedDocument);
@@ -18138,7 +18242,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                     content: template.content,
                     checklist: checklist,
                     date: new Date().toLocaleDateString('ko-KR'),
-                    createdAt: new Date().toISOString().slice(0, 10),
+                    createdAt: new Date().toISOString(),  // 생성 시각까지 기록
                     folderPath: '' // 폴더트리 관리용
                 };
 
@@ -18190,7 +18294,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                 const link = document.createElement('a');
                 link.href = url;
                 const sanitizedName = sanitizeFileName(template.name, 80);
-                const dateStr = new Date().toISOString().slice(0, 10);
+                const dateStr = localDateStr();
                 link.download = `템플릿_${sanitizedName}_${dateStr}.json`;
                 link.click();
                 
@@ -18211,7 +18315,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                 
                 const link = document.createElement('a');
                 link.href = url;
-                link.download = `템플릿_전체_${new Date().toISOString().slice(0, 10)}.json`;
+                link.download = `템플릿_전체_${localDateStr()}.json`;
                 link.click();
                 
                 URL.revokeObjectURL(url);
@@ -18312,7 +18416,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                         content: tpl.content || '',
                         checklist: (tpl.checklist || []).map(item => ({ ...item, completed: false })),
                         date: new Date().toLocaleDateString('ko-KR'),
-                        createdAt: new Date().toISOString().slice(0, 10),
+                        createdAt: new Date().toISOString(),  // 생성 시각까지 기록
                         folderPath: '',
                         isDeleted: false,
                         isTemplate: false,
@@ -18336,7 +18440,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                                 item.formats = forms.map(f => ({
                                     id: f.id, name: f.name, type: f.type, size: f.size,
                                     inIndexedDB: true, storeName: 'formFiles',
-                                    uploaded: f.uploadDate ? new Date(f.uploadDate).toLocaleString('ko-KR') : ''
+                                    uploaded: f.uploadDate || ''
                                 }));
                             }
                         });
@@ -18445,7 +18549,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                                 item.formats = forms.map(f => ({
                                     id: f.id, name: f.name, type: f.type, size: f.size,
                                     inIndexedDB: true, storeName: 'formFiles',
-                                    uploaded: f.uploadDate ? new Date(f.uploadDate).toLocaleString('ko-KR') : ''
+                                    uploaded: f.uploadDate || ''
                                 }));
                             }
                         });
@@ -20323,7 +20427,7 @@ ${docScope === 'internal' ? `[내부결재 — 보고·검토·승인용]
                                     
                                     // 완료일시
                                     if (item.completedAt) {
-                                        contextInfo += `   ⏰ 완료일시: ${item.completedAt}\n`;
+                                        contextInfo += `   ⏰ 완료일시: ${fmtDateTime(item.completedAt) || item.completedAt}\n`;
                                     }
                                 });
                                 contextInfo += `\n`;
@@ -21250,8 +21354,8 @@ ${aiPartnerCitationFirstRules}
                 const groupFiles = allFiles
                     .filter(f => (f.groupId || null) === (target.groupId || null))
                     .sort((a, b) => {
-                        const ao = orders[a.id] ?? new Date(a.uploadedAt).getTime();
-                        const bo = orders[b.id] ?? new Date(b.uploadedAt).getTime();
+                        const ao = orders[a.id] ?? dateMs(a.uploadedAt);
+                        const bo = orders[b.id] ?? dateMs(b.uploadedAt);
                         return ao !== bo ? ao - bo : a.id - b.id;
                     });
                 const idx = groupFiles.findIndex(f => f.id === fileId);
@@ -21486,8 +21590,8 @@ ${aiPartnerCitationFirstRules}
                     const bdId = isUngrouped ? 'lib-group-bd-ungrouped' : `lib-group-bd-${group.id}`;
                     const nameId = isUngrouped ? 'lib-group-name-ungrouped' : `lib-group-name-${group.id}`;
                     const sorted = [...groupFiles].sort((a, b) => {
-                        const ao = orders[a.id] ?? new Date(a.uploadedAt).getTime();
-                        const bo = orders[b.id] ?? new Date(b.uploadedAt).getTime();
+                        const ao = orders[a.id] ?? dateMs(a.uploadedAt);
+                        const bo = orders[b.id] ?? dateMs(b.uploadedAt);
                         return ao !== bo ? ao - bo : a.id - b.id;
                     });
                     const isOpen = isUngrouped;
@@ -22187,7 +22291,7 @@ ${aiPartnerCitationFirstRules}
                         ${icoFile}
                         <div style="flex:1;min-width:0;">
                             <div style="font-size:0.82rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(f.name)}</div>
-                            <div style="font-size:0.7rem;color:var(--text-muted);">${this._formatFileSize(f.size)} · ${new Date(f.uploadedAt).toLocaleDateString('ko-KR')}</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted);">${this._formatFileSize(f.size)} · ${fmtDate(f.uploadedAt)}</div>
                         </div>
                     </label>`;
                 };
@@ -22299,8 +22403,8 @@ ${aiPartnerCitationFirstRules}
                 const folderDocs = docs
                     .filter(d => (d.folderId || null) === (target.folderId || null))
                     .sort((a, b) => {
-                        const ao = orders[a.id] ?? new Date(a.uploadedAt).getTime();
-                        const bo = orders[b.id] ?? new Date(b.uploadedAt).getTime();
+                        const ao = orders[a.id] ?? dateMs(a.uploadedAt);
+                        const bo = orders[b.id] ?? dateMs(b.uploadedAt);
                         return ao !== bo ? ao - bo : a.id - b.id;
                     });
                 const idx = folderDocs.findIndex(d => d.id === docId);
@@ -22585,8 +22689,8 @@ ${aiPartnerCitationFirstRules}
 
                 const repoOrders = this._getRepoFileSortOrders();
                 const sortDocs = (arr) => [...arr].sort((a, b) => {
-                    const ao = repoOrders[a.id] ?? new Date(a.uploadedAt).getTime();
-                    const bo = repoOrders[b.id] ?? new Date(b.uploadedAt).getTime();
+                    const ao = repoOrders[a.id] ?? dateMs(a.uploadedAt);
+                    const bo = repoOrders[b.id] ?? dateMs(b.uploadedAt);
                     return ao !== bo ? ao - bo : a.id - b.id;
                 });
 
@@ -23059,7 +23163,7 @@ ${aiPartnerCitationFirstRules}
                     <input type="checkbox" value="${d.id}" ${isSel ? 'checked' : ''} onchange="app.toggleDocumentPickerSelection(${d.id}, this.checked)" style="width:15px;height:15px;flex-shrink:0;accent-color:var(--accent);">
                     <div style="flex:1;min-width:0;">
                         <div style="font-size:0.82rem;font-weight:600;color:var(--text-dark);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${this.escapeHtml(d.name)}</div>
-                        <div style="font-size:0.7rem;color:var(--text-muted);">${this._formatFileSize(d.size)}${d.uploadedAt ? ' · ' + new Date(d.uploadedAt).toLocaleDateString('ko-KR') : ''}</div>
+                        <div style="font-size:0.7rem;color:var(--text-muted);">${this._formatFileSize(d.size)}${d.uploadedAt ? ' · ' + fmtDate(d.uploadedAt) : ''}</div>
                     </div>
                 </label>`;
             }
@@ -23281,7 +23385,7 @@ ${aiPartnerCitationFirstRules}
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `서식문서함_마이그레이션_백업_${new Date().toISOString().slice(0, 10)}.json`;
+                    a.download = `서식문서함_마이그레이션_백업_${localDateStr()}.json`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
@@ -23350,7 +23454,7 @@ ${aiPartnerCitationFirstRules}
                                             name: format.name, type: format.type, size: format.size, blob,
                                             folderId: (isExample && exampleFolder) ? exampleFolder.id : (commonFolder ? commonFolder.id : null),
                                             contentHash: hash,
-                                            uploadedAt: format.uploaded || now,
+                                            uploadedAt: parseAnyDate(format.uploaded)?.toISOString() || now,  // 예전 "오전/오후" 표기를 ISO로
                                             updatedAt: now,
                                             tags: [], aiSummary: null, recommendedFor: null
                                         };
@@ -24056,7 +24160,7 @@ ${aiPartnerCitationFirstRules}
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `행정업무_v5.1_${new Date().toISOString().split('T')[0]}.json`;
+                a.download = `행정업무_v5.1_${localDateStr()}.json`;
                 a.click();
                 URL.revokeObjectURL(url);
                 this.showToast('success', '✅', 'JSON 다운로드');
@@ -24415,7 +24519,7 @@ ${aiPartnerCitationFirstRules}
                     const blob = new Blob([jsonStr], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    const dateStr = new Date().toISOString().slice(0, 10);
+                    const dateStr = localDateStr();
                     const count = packageData.projects.length;
                     
                     // 파일명 생성: 단일이면 제목 포함, 다중이면 개수만
@@ -24647,7 +24751,7 @@ ${aiPartnerCitationFirstRules}
                     }
                     
                     
-                    const todayDate = new Date().toISOString().slice(0, 10);
+                    const nowISO = new Date().toISOString();
                     const todayDateKR = new Date().toLocaleDateString('ko-KR');
 
                     let importedCount = 0;
@@ -24688,7 +24792,7 @@ ${aiPartnerCitationFirstRules}
                         // 가져오기 방식에 따라 처리
                         if (importMode === 'new') {
                             // 복사하여 시작: 오늘 날짜 + 체크 해제 + 마감일 설정
-                            project.createdAt = todayDate;
+                            project.createdAt = nowISO;  // 생성 시각까지 기록
                             project.date = todayDateKR;
                             project.deadline = deadline || null;  // 마감일 설정
                             
@@ -24716,7 +24820,7 @@ ${aiPartnerCitationFirstRules}
                                 // date를 createdAt으로 변환 시도
                                 const parsedDate = this.parseWorkflowDate(project);
                                 if (parsedDate) {
-                                    project.createdAt = parsedDate.toISOString().slice(0, 10);
+                                    project.createdAt = localDateStr(parsedDate);
                                 }
                             }
                         }
@@ -24891,7 +24995,7 @@ ${aiPartnerCitationFirstRules}
                                                         name: fileInfo.name,
                                                         type: fileInfo.type,
                                                         size: blob.size,
-                                                        uploaded: new Date().toLocaleString('ko-KR'),
+                                                        uploaded: new Date().toISOString(),
                                                         inIndexedDB: true
                                                     });
                                                 } else {
@@ -25156,7 +25260,7 @@ ${aiPartnerCitationFirstRules}
                     const blob = new Blob([jsonStr], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    const dateStr = new Date().toISOString().slice(0, 10);
+                    const dateStr = localDateStr();
                     const count = selectedIds.length;
                     
                     // 파일명 생성: 단일이면 제목 포함, 다중이면 개수만
@@ -25514,8 +25618,8 @@ ${aiPartnerCitationFirstRules}
                 if (method === 'latest') {
                     // 최신순: createdAt 또는 date 기준 내림차순
                     this.allData.workflows.sort((a, b) => {
-                        const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-                        const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+                        const dateA = this.parseWorkflowDate(a) || 0;
+                        const dateB = this.parseWorkflowDate(b) || 0;
                         return dateB - dateA;
                     });
                 }
@@ -25975,8 +26079,8 @@ ${aiPartnerCitationFirstRules}
                     const _dlOpen = `event.stopPropagation();var _i=document.getElementById('${_dlId}');if(_i){try{_i.showPicker();}catch(e){_i.click();}}`;
 
                     if (isCompleted) {
-                        const _m = item.completedAt && item.completedAt.match(/(\d{4})\.\s*(\d+)\.\s*(\d+)/);
-                        const completedDateText = _m ? `${_m[2]}/${_m[3]} 완료` : '완료';
+                        const _cd = parseAnyDate(item.completedAt);
+                        const completedDateText = _cd ? `${fmtDate(_cd, { short: true })} 완료` : '완료';
                         deadlineBadge = `<span style="position:relative;display:inline-flex;align-items:center;">${_dlInput}<span class="deadline-badge deadline-item-badge" onclick="${_dlOpen}" style="font-size:0.72rem;color:#10b981;font-weight:600;cursor:pointer;white-space:nowrap;padding:2px 5px;border-radius:4px;" title="${item.completedAt ? '완료일: '+item.completedAt : '완료'} (클릭하여 마감일 수정)">${completedDateText}</span></span>`;
                     } else if (item.deadline) {
                         const daysLeft = this.calculateDaysLeft(item.deadline);
@@ -26227,7 +26331,7 @@ ${aiPartnerCitationFirstRules}
                 } else {
                     // 분기로 완료 처리됨을 구분 (조치결과에 가짜 내용을 채우지 않고 별도 표시로 구분)
                     currentItem.completed = true;
-                    currentItem.completedAt = new Date().toLocaleString('ko-KR');
+                    currentItem.completedAt = new Date().toISOString();
                     currentItem.branchOnly = true;
                 }
 
@@ -28589,7 +28693,7 @@ ${originalContent}`;
                 }
                 
                 if (item.completedAt) {
-                    contextInfo += `\n완료일시: ${item.completedAt}`;
+                    contextInfo += `\n완료일시: ${fmtDateTime(item.completedAt) || item.completedAt}`;
                 }
                 
                 contextInfo = contextInfo.trim();
@@ -29867,7 +29971,7 @@ ${originalContent}`;
                 const blob = new Blob([jsonStr], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                const dateStr = new Date().toISOString().slice(0, 10);
+                const dateStr = localDateStr();
                 a.href = url;
                 a.download = `AI_업무_네비게이터_백업_${year}년_${dateStr}.json`;
                 a.click();
@@ -30712,7 +30816,7 @@ ${originalContent}`;
                         ${checklistHTML}
                         
                         <div class="print-footer">
-                            인쇄일: ${new Date().toLocaleDateString('ko-KR')} ${new Date().toLocaleTimeString('ko-KR')}
+                            인쇄일: ${fmtDateTime(new Date())}
                         </div>
                     </body>
                     </html>
@@ -30793,7 +30897,7 @@ ${originalContent}`;
                             `백업 파일을 불러오시겠습니까?
 
 ` +
-                            `백업 날짜: ${new Date(backupData.exportDate).toLocaleString('ko-KR')}
+                            `백업 날짜: ${fmtDateTime(backupData.exportDate) || '알 수 없음'}
 ` +
                             `워크플로우: ${backupData.totalWorkflows}개
 ` +
@@ -30967,7 +31071,7 @@ ${originalContent}`;
                         content: original.content,
                         checklist: original.checklist ? JSON.parse(JSON.stringify(original.checklist)) : [],
                         date: new Date().toLocaleDateString('ko-KR'),
-                        createdAt: new Date().toISOString().slice(0, 10),
+                        createdAt: new Date().toISOString(),  // 생성 시각까지 기록
                         priority: original.priority || 'normal',
                         deadline: deadline,
                         // 업무유형에서 파생된 인스턴스 — 폴더 독립, 비템플릿으로 생성
@@ -31149,7 +31253,7 @@ ${originalContent}`;
                                                         name: form.name,
                                                         type: form.type,
                                                         size: form.size,
-                                                        uploaded: new Date().toLocaleString('ko-KR'),
+                                                        uploaded: new Date().toISOString(),
                                                         inIndexedDB: true
                                                     });
                                                 }
@@ -33719,7 +33823,7 @@ ${pdfContent.length > 100000 ? pdfContent.substring(0, 100000) + '\n\n[중략: �
                         completedExperience += `   💡 팁: ${item.tip.content}\n`;
                     }
                     if (item.completedAt) {
-                        completedExperience += `   ⏰ 완료일: ${item.completedAt}\n`;
+                        completedExperience += `   ⏰ 완료일: ${fmtDateTime(item.completedAt) || item.completedAt}\n`;
                     }
                 });
                 completedExperience += '\n';
